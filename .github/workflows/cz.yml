@@ -1,4 +1,4 @@
-name: IPQ-CZ 固件编译
+name: IPQ-CZ
 
 on:
   schedule:
@@ -278,7 +278,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.BUILD_TIME }}-${{ env.CHIP_ARCH }}
-          name: OpenWrt 固件发布 - ${{ env.BUILD_TIME }}
+          name: IPQ-CZ 固件发布 - ${{ env.BUILD_TIME }}
           body_path: release-files/release-notes.md
           files: |
             release-files/*.bin
