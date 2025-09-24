@@ -201,8 +201,11 @@ jobs:
           cat ../configs/${{ matrix.branch.repo_short }}_base.config >> .config
           cat ../configs/Ultra.config >> .config
           
-          # 使用olddefconfig处理新选项，避免交互式提示
-          make olddefconfig
+          # 禁用有问题的包，解决依赖问题
+          echo "# CONFIG_PACKAGE_policycoreutils is not set" >> .config
+          
+          # 使用非交互方式处理配置
+          echo "y" | make oldconfig
           
           # 验证配置文件是否有效
           if ! grep -q "CONFIG_TARGET_.*=y" .config; then
@@ -462,8 +465,11 @@ jobs:
           cat ../configs/${{ matrix.branch.repo_short }}_base.config >> .config
           cat ../configs/Max.config >> .config
           
-          # 使用olddefconfig处理新选项，避免交互式提示
-          make olddefconfig
+          # 禁用有问题的包，解决依赖问题
+          echo "# CONFIG_PACKAGE_policycoreutils is not set" >> .config
+          
+          # 使用非交互方式处理配置
+          echo "y" | make oldconfig
           
           # 验证配置文件是否有效
           if ! grep -q "CONFIG_TARGET_.*=y" .config; then
@@ -723,8 +729,11 @@ jobs:
           cat ../configs/${{ matrix.branch.repo_short }}_base.config >> .config
           cat ../configs/Pro.config >> .config
           
-          # 使用olddefconfig处理新选项，避免交互式提示
-          make olddefconfig
+          # 禁用有问题的包，解决依赖问题
+          echo "# CONFIG_PACKAGE_policycoreutils is not set" >> .config
+          
+          # 使用非交互方式处理配置
+          echo "y" | make oldconfig
           
           # 验证配置文件是否有效
           if ! grep -q "CONFIG_TARGET_.*=y" .config; then
