@@ -6,21 +6,23 @@ on:
     - cron: '0 16 * * 4'
   workflow_dispatch:
 
+# 设置artifact保留天数
+artifact-retention-days: 7
+
+permissions:
+  contents: write
+
 env:
   # 芯片变量（未来可扩展）
   CHIP: ipq60xx
   # 仓库配置
-  REPO_URL_IMM: https://github.com/laipeng668/immortalwrt.git
-  REPO_BRANCH_IMM: master
-  REPO_SHORT_IMM: immwrt
+  REPOS: |
+    imm|${{ github.server_url }}/laipeng668/immortalwrt.git|master|immwrt
+    open|${{ github.server_url }}/laipeng668/openwrt.git|master|openwrt
+    lib|${{ github.server_url }}/laipeng668/openwrt-6.x.git|k6.12-nss|libwrt
   
-  REPO_URL_OPEN: https://github.com/laipeng668/openwrt.git
-  REPO_BRANCH_OPEN: master
-  REPO_SHORT_OPEN: openwrt
-  
-  REPO_URL_LIB: https://github.com/laipeng668/openwrt-6.x.git
-  REPO_BRANCH_LIB: k6.12-nss
-  REPO_SHORT_LIB: libwrt
+  # 配置类型（按优先级排序）
+  CONFIG_TYPES: Ultra Max Pro
   
   # 默认信息
   DEFAULT_IP: 192.168.111.1
@@ -30,55 +32,53 @@ env:
   AUTHOR: Mary
 
 jobs:
-  # 构建Ultra配置（优先级最高，最大化缓存命中）
-  build-ultra:
-    runs-on: ubuntu-latest
+  # 构建所有配置（按优先级顺序）
+  build:
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
-        repo: [imm, open, lib]  # 三个仓库
+        # 解析仓库配置
+        repo: ${{ fromJson(env.REPOS) }}
+        config_type: ${{ fromJson(env.CONFIG_TYPES) }}
         # 未来可扩展其他芯片
         # chip: [ipq60xx, ipq80xx, mtk]
     steps:
       - name: 检出代码
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         
       - name: 设置仓库环境变量
         run: |
           set -e
-          case "${{ matrix.repo }}" in
-            imm)
-              echo "REPO_URL=${{ env.REPO_URL_IMM }}" >> $GITHUB_ENV
-              echo "REPO_BRANCH=${{ env.REPO_BRANCH_IMM }}" >> $GITHUB_ENV
-              echo "REPO_SHORT=${{ env.REPO_SHORT_IMM }}" >> $GITHUB_ENV
-              ;;
-            open)
-              echo "REPO_URL=${{ env.REPO_URL_OPEN }}" >> $GITHUB_ENV
-              echo "REPO_BRANCH=${{ env.REPO_BRANCH_OPEN }}" >> $GITHUB_ENV
-              echo "REPO_SHORT=${{ env.REPO_SHORT_OPEN }}" >> $GITHUB_ENV
-              ;;
-            lib)
-              echo "REPO_URL=${{ env.REPO_URL_LIB }}" >> $GITHUB_ENV
-              echo "REPO_BRANCH=${{ env.REPO_BRANCH_LIB }}" >> $GITHUB_ENV
-              echo "REPO_SHORT=${{ env.REPO_SHORT_LIB }}" >> $GITHUB_ENV
-              ;;
-          esac
+          IFS='|' read -r REPO_KEY REPO_URL REPO_BRANCH REPO_SHORT <<< "${{ matrix.repo }}"
+          echo "REPO_URL=${REPO_URL}" >> $GITHUB_ENV
+          echo "REPO_BRANCH=${REPO_BRANCH}" >> $GITHUB_ENV
+          echo "REPO_SHORT=${REPO_SHORT}" >> $GITHUB_ENV
+          echo "CONFIG_TYPE=${{ matrix.config_type }}" >> $GITHUB_ENV
           
-      - name: 缓存下载目录
-        uses: actions/cache@v3
+      - name: 初始化错误日志
+        run: |
+          set -e
+          mkdir -p logs
+          echo "=== 构建开始: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ matrix.config_type }} ===" > logs/error.log
+          
+      - name: 缓存下载目录（同分支通用）
+        uses: actions/cache@v4
         with:
           path: openwrt/dl
-          key: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-dl-${{ hashFiles('configs/*.config') }}
+          key: dl-${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ hashFiles('configs/${{ env.CHIP }}_base.config', 'configs/${{ env.REPO_SHORT }}_base.config') }}
           restore-keys: |
-            ${{ env.REPO_SHORT }}-${{ env.CHIP }}-dl-
-            
-      - name: 缓存feeds目录
-        uses: actions/cache@v3
+            dl-${{ env.REPO_SHORT }}-${{ env.CHIP }}-
+        continue-on-error: true
+          
+      - name: 缓存feeds目录（全矩阵通用）
+        uses: actions/cache@v4
         with:
           path: openwrt/feeds
-          key: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-feeds-${{ hashFiles('configs/*.config') }}
+          key: feeds-${{ hashFiles('configs/*.config') }}
           restore-keys: |
-            ${{ env.REPO_SHORT }}-${{ env.CHIP }}-feeds-
-            
+            feeds-
+        continue-on-error: true
+          
       - name: 合并配置文件
         run: |
           set -e
@@ -88,29 +88,42 @@ jobs:
           # 按优先级合并配置：芯片基础配置 + 分支基础配置 + 软件包配置
           cat configs/${{ env.CHIP }}_base.config > openwrt/.config
           cat configs/${{ env.REPO_SHORT }}_base.config >> openwrt/.config
-          cat configs/Ultra.config >> openwrt/.config
+          cat configs/${{ env.CONFIG_TYPE }}.config >> openwrt/.config
           
           # 验证配置文件合并成功
           if [ ! -s openwrt/.config ]; then
-            echo "错误：配置文件合并失败" >&2
+            echo "错误：配置文件合并失败" >> logs/error.log
             exit 1
           fi
+        continue-on-error: true
           
-      - name: 提取设备名称
+      - name: 提取设备信息
         run: |
           set -e
           # 从配置文件中提取设备名称
           DEVICE_NAME=$(grep '^CONFIG_TARGET_PROFILE=' openwrt/.config | cut -d'"' -f2)
           if [ -z "$DEVICE_NAME" ]; then
-            echo "错误：无法从配置文件中提取设备名称" >&2
+            echo "错误：无法从配置文件中提取设备名称" >> logs/error.log
             exit 1
           fi
           echo "DEVICE_NAME=${DEVICE_NAME}" >> $GITHUB_ENV
+          
+          # 提取目标架构信息
+          TARGET_BOARD=$(grep '^CONFIG_TARGET_BOARD=' openwrt/.config | cut -d'"' -f2)
+          TARGET_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' openwrt/.config | cut -d'"' -f2)
+          if [ -z "$TARGET_BOARD" ] || [ -z "$TARGET_SUBTARGET" ]; then
+            echo "错误：无法从配置文件中提取目标架构信息" >> logs/error.log
+            exit 1
+          fi
+          echo "TARGET_BOARD=${TARGET_BOARD}" >> $GITHUB_ENV
+          echo "TARGET_SUBTARGET=${TARGET_SUBTARGET}" >> $GITHUB_ENV
+        continue-on-error: true
           
       - name: 克隆源码
         run: |
           set -e
           git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt
+        continue-on-error: true
           
       - name: 更新feeds
         run: |
@@ -118,6 +131,7 @@ jobs:
           cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+        continue-on-error: true
           
       - name: 编译固件
         run: |
@@ -131,19 +145,23 @@ jobs:
           # 编译（严格错误检查）
           make -j$(nproc) 2>&1 | tee build.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "错误：编译失败" >&2
+            echo "错误：编译失败" >> ../logs/error.log
             exit 1
           fi
+        continue-on-error: true
           
       - name: 收集产物
         run: |
           set -e
           # 创建临时目录
-          ARTIFACT_DIR="artifacts/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Ultra"
+          ARTIFACT_DIR="${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}"
           mkdir -p "$ARTIFACT_DIR"
           
+          # 定义目标目录
+          TARGET_DIR="openwrt/bin/targets/${{ env.TARGET_BOARD }}/${{ env.TARGET_SUBTARGET }}"
+          
           # 复制固件并重命名
-          for file in openwrt/bin/targets/*/${{ env.CHIP }}/*.bin; do
+          for file in "$TARGET_DIR"/*.bin; do
             if [ -f "$file" ]; then
               # 提取固件类型（factory/sysupgrade）
               if [[ "$file" == *"factory"* ]]; then
@@ -155,22 +173,22 @@ jobs:
               fi
               
               # 重命名规则：分支缩写-芯片变量-设备名称-固件类型-配置.bin
-              NEW_NAME="${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${FIRMWARE_TYPE}-Ultra.bin"
+              NEW_NAME="${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${FIRMWARE_TYPE}-${{ env.CONFIG_TYPE }}.bin"
               cp "$file" "$ARTIFACT_DIR/$NEW_NAME"
             fi
           done
           
           # 复制配置文件并重命名
-          cp openwrt/.config "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Ultra.config"
-          cp openwrt/.config.buildinfo "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Ultra.config.buildinfo"
+          cp openwrt/.config "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}.config"
+          cp openwrt/.config.buildinfo "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}.config.buildinfo"
           
           # 复制manifest文件
-          if [ -f openwrt/bin/targets/*/${{ env.CHIP }}/*.manifest ]; then
-            cp openwrt/bin/targets/*/${{ env.CHIP }}/*.manifest "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Ultra.manifest"
+          if [ -f "$TARGET_DIR"/*.manifest ]; then
+            cp "$TARGET_DIR"/*.manifest "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}.manifest"
           fi
           
           # 复制日志
-          cp openwrt/build.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Ultra-build.log"
+          cp openwrt/build.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}-build.log"
           
           # 复制软件包（允许覆盖）
           if [ -d openwrt/bin/packages ]; then
@@ -178,321 +196,73 @@ jobs:
             cp -r openwrt/bin/packages/* "$ARTIFACT_DIR/packages/"
           fi
           
-      - name: 上传产物
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Ultra
-          path: artifacts/
-          
-  # 构建Max配置（依赖Ultra构建完成）
-  build-max:
-    needs: build-ultra
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        repo: [imm, open, lib]
-        # chip: [ipq60xx, ipq80xx, mtk]
-    steps:
-      # 步骤与build-ultra相同，只需将"Ultra"替换为"Max"
-      - name: 检出代码
-        uses: actions/checkout@v3
-        
-      - name: 设置仓库环境变量
-        run: |
-          set -e
-          case "${{ matrix.repo }}" in
-            imm)
-              echo "REPO_URL=${{ env.REPO_URL_IMM }}" >> $GITHUB_ENV
-              echo "REPO_BRANCH=${{ env.REPO_BRANCH_IMM }}" >> $GITHUB_ENV
-              echo "REPO_SHORT=${{ env.REPO_SHORT_IMM }}" >> $GITHUB_ENV
-              ;;
-            open)
-              echo "REPO_URL=${{ env.REPO_URL_OPEN }}" >> $GITHUB_ENV
-              echo "REPO_BRANCH=${{ env.REPO_BRANCH_OPEN }}" >> $GITHUB_ENV
-              echo "REPO_SHORT=${{ env.REPO_SHORT_OPEN }}" >> $GITHUB_ENV
-              ;;
-            lib)
-              echo "REPO_URL=${{ env.REPO_URL_LIB }}" >> $GITHUB_ENV
-              echo "REPO_BRANCH=${{ env.REPO_BRANCH_LIB }}" >> $GITHUB_ENV
-              echo "REPO_SHORT=${{ env.REPO_SHORT_LIB }}" >> $GITHUB_ENV
-              ;;
-          esac
-          
-      - name: 缓存下载目录
-        uses: actions/cache@v3
-        with:
-          path: openwrt/dl
-          key: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-dl-${{ hashFiles('configs/*.config') }}
-          restore-keys: |
-            ${{ env.REPO_SHORT }}-${{ env.CHIP }}-dl-
-            
-      - name: 缓存feeds目录
-        uses: actions/cache@v3
-        with:
-          path: openwrt/feeds
-          key: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-feeds-${{ hashFiles('configs/*.config') }}
-          restore-keys: |
-            ${{ env.REPO_SHORT }}-${{ env.CHIP }}-feeds-
-            
-      - name: 合并配置文件
-        run: |
-          set -e
-          mkdir -p openwrt
-          cat configs/${{ env.CHIP }}_base.config > openwrt/.config
-          cat configs/${{ env.REPO_SHORT }}_base.config >> openwrt/.config
-          cat configs/Max.config >> openwrt/.config
-          
-          if [ ! -s openwrt/.config ]; then
-            echo "错误：配置文件合并失败" >&2
-            exit 1
+          # 复制错误日志（如果有）
+          if [ -f logs/error.log ] && [ -s logs/error.log ]; then
+            cp logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}-error.log"
           fi
-          
-      - name: 提取设备名称
-        run: |
-          set -e
-          DEVICE_NAME=$(grep '^CONFIG_TARGET_PROFILE=' openwrt/.config | cut -d'"' -f2)
-          if [ -z "$DEVICE_NAME" ]; then
-            echo "错误：无法从配置文件中提取设备名称" >&2
-            exit 1
-          fi
-          echo "DEVICE_NAME=${DEVICE_NAME}" >> $GITHUB_ENV
-          
-      - name: 克隆源码
-        run: |
-          set -e
-          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt
-          
-      - name: 更新feeds
-        run: |
-          set -e
-          cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          
-      - name: 编译固件
-        run: |
-          set -e
-          cd openwrt
-          cp ../openwrt/.config .config
-          make defconfig
-          make -j$(nproc) 2>&1 | tee build.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "错误：编译失败" >&2
-            exit 1
-          fi
-          
-      - name: 收集产物
-        run: |
-          set -e
-          ARTIFACT_DIR="artifacts/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Max"
-          mkdir -p "$ARTIFACT_DIR"
-          
-          for file in openwrt/bin/targets/*/${{ env.CHIP }}/*.bin; do
-            if [ -f "$file" ]; then
-              if [[ "$file" == *"factory"* ]]; then
-                FIRMWARE_TYPE="factory"
-              elif [[ "$file" == *"sysupgrade"* ]]; then
-                FIRMWARE_TYPE="sysupgrade"
-              else
-                continue
-              fi
-              NEW_NAME="${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${FIRMWARE_TYPE}-Max.bin"
-              cp "$file" "$ARTIFACT_DIR/$NEW_NAME"
-            fi
-          done
-          
-          cp openwrt/.config "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Max.config"
-          cp openwrt/.config.buildinfo "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Max.config.buildinfo"
-          
-          if [ -f openwrt/bin/targets/*/${{ env.CHIP }}/*.manifest ]; then
-            cp openwrt/bin/targets/*/${{ env.CHIP }}/*.manifest "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Max.manifest"
-          fi
-          
-          cp openwrt/build.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Max-build.log"
-          
-          if [ -d openwrt/bin/packages ]; then
-            mkdir -p "$ARTIFACT_DIR/packages"
-            cp -r openwrt/bin/packages/* "$ARTIFACT_DIR/packages/"
-          fi
+        continue-on-error: true
           
       - name: 上传产物
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Max
-          path: artifacts/
-          
-  # 构建Pro配置（依赖Max构建完成）
-  build-pro:
-    needs: build-max
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        repo: [imm, open, lib]
-        # chip: [ipq60xx, ipq80xx, mtk]
-    steps:
-      # 步骤与build-ultra相同，只需将"Ultra"替换为"Pro"
-      - name: 检出代码
-        uses: actions/checkout@v3
-        
-      - name: 设置仓库环境变量
-        run: |
-          set -e
-          case "${{ matrix.repo }}" in
-            imm)
-              echo "REPO_URL=${{ env.REPO_URL_IMM }}" >> $GITHUB_ENV
-              echo "REPO_BRANCH=${{ env.REPO_BRANCH_IMM }}" >> $GITHUB_ENV
-              echo "REPO_SHORT=${{ env.REPO_SHORT_IMM }}" >> $GITHUB_ENV
-              ;;
-            open)
-              echo "REPO_URL=${{ env.REPO_URL_OPEN }}" >> $GITHUB_ENV
-              echo "REPO_BRANCH=${{ env.REPO_BRANCH_OPEN }}" >> $GITHUB_ENV
-              echo "REPO_SHORT=${{ env.REPO_SHORT_OPEN }}" >> $GITHUB_ENV
-              ;;
-            lib)
-              echo "REPO_URL=${{ env.REPO_URL_LIB }}" >> $GITHUB_ENV
-              echo "REPO_BRANCH=${{ env.REPO_BRANCH_LIB }}" >> $GITHUB_ENV
-              echo "REPO_SHORT=${{ env.REPO_SHORT_LIB }}" >> $GITHUB_ENV
-              ;;
-          esac
-          
-      - name: 缓存下载目录
-        uses: actions/cache@v3
-        with:
-          path: openwrt/dl
-          key: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-dl-${{ hashFiles('configs/*.config') }}
-          restore-keys: |
-            ${{ env.REPO_SHORT }}-${{ env.CHIP }}-dl-
-            
-      - name: 缓存feeds目录
-        uses: actions/cache@v3
-        with:
-          path: openwrt/feeds
-          key: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-feeds-${{ hashFiles('configs/*.config') }}
-          restore-keys: |
-            ${{ env.REPO_SHORT }}-${{ env.CHIP }}-feeds-
-            
-      - name: 合并配置文件
-        run: |
-          set -e
-          mkdir -p openwrt
-          cat configs/${{ env.CHIP }}_base.config > openwrt/.config
-          cat configs/${{ env.REPO_SHORT }}_base.config >> openwrt/.config
-          cat configs/Pro.config >> openwrt/.config
-          
-          if [ ! -s openwrt/.config ]; then
-            echo "错误：配置文件合并失败" >&2
-            exit 1
-          fi
-          
-      - name: 提取设备名称
-        run: |
-          set -e
-          DEVICE_NAME=$(grep '^CONFIG_TARGET_PROFILE=' openwrt/.config | cut -d'"' -f2)
-          if [ -z "$DEVICE_NAME" ]; then
-            echo "错误：无法从配置文件中提取设备名称" >&2
-            exit 1
-          fi
-          echo "DEVICE_NAME=${DEVICE_NAME}" >> $GITHUB_ENV
-          
-      - name: 克隆源码
-        run: |
-          set -e
-          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt
-          
-      - name: 更新feeds
-        run: |
-          set -e
-          cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          
-      - name: 编译固件
-        run: |
-          set -e
-          cd openwrt
-          cp ../openwrt/.config .config
-          make defconfig
-          make -j$(nproc) 2>&1 | tee build.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "错误：编译失败" >&2
-            exit 1
-          fi
-          
-      - name: 收集产物
-        run: |
-          set -e
-          ARTIFACT_DIR="artifacts/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Pro"
-          mkdir -p "$ARTIFACT_DIR"
-          
-          for file in openwrt/bin/targets/*/${{ env.CHIP }}/*.bin; do
-            if [ -f "$file" ]; then
-              if [[ "$file" == *"factory"* ]]; then
-                FIRMWARE_TYPE="factory"
-              elif [[ "$file" == *"sysupgrade"* ]]; then
-                FIRMWARE_TYPE="sysupgrade"
-              else
-                continue
-              fi
-              NEW_NAME="${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${FIRMWARE_TYPE}-Pro.bin"
-              cp "$file" "$ARTIFACT_DIR/$NEW_NAME"
-            fi
-          done
-          
-          cp openwrt/.config "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Pro.config"
-          cp openwrt/.config.buildinfo "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Pro.config.buildinfo"
-          
-          if [ -f openwrt/bin/targets/*/${{ env.CHIP }}/*.manifest ]; then
-            cp openwrt/bin/targets/*/${{ env.CHIP }}/*.manifest "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Pro.manifest"
-          fi
-          
-          cp openwrt/build.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Pro-build.log"
-          
-          if [ -d openwrt/bin/packages ]; then
-            mkdir -p "$ARTIFACT_DIR/packages"
-            cp -r openwrt/bin/packages/* "$ARTIFACT_DIR/packages/"
-          fi
-          
-      - name: 上传产物
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-Pro
-          path: artifacts/
+          name: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}
+          path: |
+            ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}/
+            logs/
+          if-no-files-found: error
           
   # 打包并发布Release
   package-and-release:
-    needs: [build-ultra, build-max, build-pro]
-    runs-on: ubuntu-latest
+    needs: build
+    runs-on: ubuntu-22.04
     steps:
       - name: 检出代码
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         
       - name: 下载所有产物
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: all-artifacts/
           
       - name: 准备发布目录
         run: |
           set -e
-          mkdir -p release
+          mkdir -p release/{config,log,app,error}
+          
+          # 收集配置文件
+          find all-artifacts -name "*.config" -exec cp {} release/config/ \;
+          find all-artifacts -name "*.config.buildinfo" -exec cp {} release/config/ \;
+          find all-artifacts -name "*.manifest" -exec cp {} release/config/ \;
+          
+          # 收集日志文件
+          find all-artifacts -name "*-build.log" -exec cp {} release/log/ \;
+          
+          # 收集错误日志
+          find all-artifacts -name "*-error.log" -exec cp {} release/error/ \;
+          
+          # 收集软件包（允许覆盖重名文件）
+          find all-artifacts -name "packages" -type d -exec cp -r {} release/app/ \;
           
           # 打包配置文件
-          tar -czf release/${{ env.CHIP }}-config.tar.gz -C all-artifacts .
+          tar -czf release/${{ env.CHIP }}-config.tar.gz -C release/config .
           
           # 打包日志文件
-          find all-artifacts -name "*-build.log" -exec tar -czf release/${{ env.CHIP }}-log.tar.gz {} +
+          tar -czf release/${{ env.CHIP }}-log.tar.gz -C release/log .
           
-          # 打包软件包（允许覆盖重名文件）
-          mkdir -p temp-packages
-          find all-artifacts -name "packages" -type d -exec cp -r {} temp-packages/ \;
-          tar -czf release/${{ env.CHIP }}-app.tar.gz -C temp-packages .
+          # 打包错误日志
+          if [ -d release/error ] && [ "$(ls -A release/error)" ]; then
+            tar -czf release/${{ env.CHIP }}-error.tar.gz -C release/error .
+          fi
+          
+          # 打包软件包
+          tar -czf release/${{ env.CHIP }}-app.tar.gz -C release/app .
           
           # 提取内核版本和软件包列表
           KERNEL_VERSION=""
           LUCI_APPS=""
           
           # 从任意一个配置文件中提取内核版本
-          for config_file in $(find all-artifacts -name "*.config"); do
+          for config_file in release/config/*.config; do
             KERNEL_VER=$(grep "^CONFIG_LINUX_KERNEL_VERSION=" "$config_file" | cut -d'"' -f2)
             if [ -n "$KERNEL_VER" ]; then
               KERNEL_VERSION="$KERNEL_VER"
@@ -501,8 +271,8 @@ jobs:
           done
           
           # 从软件包目录中提取luci-app列表
-          if [ -d temp-packages ]; then
-            LUCI_APPS=$(find temp-packages -name "luci-app-*.ipk" | sed 's/.*\///g' | sort | uniq | tr '\n' ' ')
+          if [ -d release/app ]; then
+            LUCI_APPS=$(find release/app -name "luci-app-*.ipk" | sed 's/.*\///g' | sort | uniq | tr '\n' ' ')
           fi
           
           # 设置环境变量供Release使用
@@ -519,7 +289,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.RELEASE_DATE }}-${{ env.CHIP }}
-          release_name: ${{ env.REPO_SHORT }}-${{ env.CHIP }} Release ${{ env.RELEASE_DATE }}
+          release_name: ${{ env.CHIP }} Release ${{ env.RELEASE_DATE }}
           body: |
             默认管理地址：${{ env.DEFAULT_IP }}
             默认用户：${{ env.DEFAULT_USER }}
@@ -537,6 +307,7 @@ jobs:
             - 固件文件：分支缩写-芯片变量-设备名称-固件类型-配置.bin
             - 配置文件：${{ env.CHIP }}-config.tar.gz
             - 编译日志：${{ env.CHIP }}-log.tar.gz
+            - 错误日志：${{ env.CHIP }}-error.tar.gz
             - 软件包：${{ env.CHIP }}-app.tar.gz
           draft: false
           prerelease: false
@@ -559,6 +330,17 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./release/${{ env.CHIP }}-log.tar.gz
           asset_name: ${{ env.CHIP }}-log.tar.gz
+          asset_content_type: application/gzip
+          
+      - name: 上传错误日志包（如果有）
+        if: hashFiles('release/${{ env.CHIP }}-error.tar.gz') != ''
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release/${{ env.CHIP }}-error.tar.gz
+          asset_name: ${{ env.CHIP }}-error.tar.gz
           asset_content_type: application/gzip
           
       - name: 上传软件包
