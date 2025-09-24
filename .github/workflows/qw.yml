@@ -1,0 +1,260 @@
+name: IPQ-QW
+
+on:
+  schedule:
+    # 每周五北京时间0点触发
+    - cron: '0 16 * * 5'
+  workflow_dispatch:
+
+env:
+  # 设置时区为中国标准时间
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        # 定义三个分支及其配置
+        repo:
+          - { name: "openwrt", url: "https://github.com/laipeng668/openwrt.git", branch: "master", short: "openwrt" }
+          - { name: "immortalwrt", url: "https://github.com/laipeng668/immortalwrt.git", branch: "master", short: "immwrt" }
+          - { name: "libwrt", url: "https://github.com/laipeng668/openwrt-6.x.git", branch: "k6.12-nss", short: "libwrt" }
+        config:
+          - { name: "Ultra", file: "Ultra.config" }
+          - { name: "Max", file: "Max.config" }
+          - { name: "Pro", file: "Pro.config" }
+        # 架构配置
+        arch:
+          - { name: "ipq60xx", chip: "ipq60xx" }
+        # 注意：这里预留了后续添加其他架构的支持，如ipq80xx、mtk等
+        # - { name: "ipq80xx", chip: "ipq80xx" }
+        # - { name: "mtk", chip: "mtk" }
+
+    steps:
+      # 清理磁盘空间
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          # 清理超过 1GB 的文件
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap: true
+
+      # 检出代码
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 设置环境变量
+      - name: Set Environment Variables
+        run: |
+          echo "REPO_NAME=${{ matrix.repo.name }}" >> $GITHUB_ENV
+          echo "REPO_URL=${{ matrix.repo.url }}" >> $GITHUB_ENV
+          echo "REPO_BRANCH=${{ matrix.repo.branch }}" >> $GITHUB_ENV
+          echo "REPO_SHORT=${{ matrix.repo.short }}" >> $GITHUB_ENV
+          echo "CONFIG_NAME=${{ matrix.config.name }}" >> $GITHUB_ENV
+          echo "CONFIG_FILE=${{ matrix.config.file }}" >> $GITHUB_ENV
+          echo "ARCH_NAME=${{ matrix.arch.name }}" >> $GITHUB_ENV
+          echo "CHIP_NAME=${{ matrix.arch.chip }}" >> $GITHUB_ENV
+          echo "BUILD_DATE=$(date +%Y-%m-%d)" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date +%H:%M:%S)" >> $GITHUB_ENV
+
+      # 创建构建目录
+      - name: Create Build Directory
+        run: |
+          mkdir -p build
+          mkdir -p artifacts
+
+      # 下载并准备编译环境
+      - name: Setup Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncurses5-dev zlib1g-dev gawk gcc-multilib flex git-core gettext libssl-dev xsltproc rsync unzip wget curl
+          echo "Build environment setup complete"
+
+      # 克隆OpenWrt源码
+      - name: Clone OpenWrt Source
+        run: |
+          echo "Cloning ${{ env.REPO_NAME }} from ${{ env.REPO_URL }} branch ${{ env.REPO_BRANCH }}"
+          git clone --depth=1 -b ${{ env.REPO_BRANCH }} ${{ env.REPO_URL }} openwrt-source
+          cd openwrt-source
+          echo "Source cloned successfully"
+          pwd
+
+      # 配置OpenWrt
+      - name: Configure OpenWrt
+        run: |
+          cd openwrt-source
+          
+          # 创建配置文件
+          echo "Creating configuration file..."
+          cat ../configs/ipq60xx_base.config > .config
+          cat ../configs/${{ env.REPO_SHORT }}_base.config >> .config
+          cat ../configs/${{ env.CONFIG_FILE }} >> .config
+          
+          # 添加设备信息
+          echo "CONFIG_TARGET_DEVICE_QUALCOMMAX_IPQ60XX_DEVICE_JDCLOUD_RE_SS_01=y" >> .config
+          echo "CONFIG_TARGET_DEVICE_QUALCOMMAX_IPQ60XX_DEVICE_JDCLOUD_RE_CS_02=y" >> .config
+          
+          # 修改默认IP和密码
+          sed -i 's/192.168.1.1/192.168.111.1/g' package/base-files/files/bin/config_generate
+          sed -i "s/hostname='.*'/hostname='WRT'/g" package/base-files/files/bin/config_generate
+          
+          # 修改管理员密码和无线密码为空
+          sed -i '/DEFAULT_PASSWORD=/s/=.*/=""/' package/base-files/files/bin/config_generate
+          sed -i '/DEFAULT_WIFI_PASSWORD=/s/=.*/=""/' package/base-files/files/bin/config_generate
+          
+          echo "Configuration completed"
+
+      # 编译工具链（L1层）
+      - name: Compile Toolchain (L1)
+        if: github.run_number == 1 || github.event_name == 'workflow_dispatch'
+        run: |
+          cd openwrt-source
+          echo "Compiling toolchain..."
+          make toolchain/compile -j$(nproc) || { echo "Toolchain compilation failed"; exit 1; }
+          echo "Toolchain compilation successful"
+
+      # 编译内核（L2层）
+      - name: Compile Kernel (L2)
+        run: |
+          cd openwrt-source
+          echo "Compiling kernel..."
+          make kernel/compile -j$(nproc) || { echo "Kernel compilation failed"; exit 1; }
+          echo "Kernel compilation successful"
+
+      # 编译依赖包（L3层）
+      - name: Compile Dependencies (L3)
+        run: |
+          cd openwrt-source
+          echo "Compiling dependencies..."
+          make package/compile -j$(nproc) || { echo "Dependency compilation failed"; exit 1; }
+          echo "Dependency compilation successful"
+
+      # 编译基础系统（L4层）
+      - name: Compile Base System (L4)
+        run: |
+          cd openwrt-source
+          echo "Compiling base system..."
+          make target/compile -j$(nproc) || { echo "Base system compilation failed"; exit 1; }
+          echo "Base system compilation successful"
+
+      # 编译软件包（L5层）
+      - name: Compile Packages (L5)
+        run: |
+          cd openwrt-source
+          echo "Compiling packages..."
+          make package/index
+          make package/compile -j$(nproc) || { echo "Package compilation failed"; exit 1; }
+          echo "Package compilation successful"
+
+      # 整合固件
+      - name: Build Firmware
+        run: |
+          cd openwrt-source
+          echo "Building firmware..."
+          make -j$(nproc) || { echo "Firmware building failed"; exit 1; }
+          echo "Firmware built successfully"
+
+      # 复制和重命名产物
+      - name: Process Artifacts
+        run: |
+          cd openwrt-source
+          
+          # 创建产物目录
+          mkdir -p ../artifacts/${{ env.CHIP_NAME }}
+          
+          # 复制固件
+          find bin/targets/* -name "*.bin" -type f | while read file; do
+            filename=$(basename "$file")
+            device_name=$(echo "$filename" | sed -E 's/.*_(.*)\.bin/\1/')
+            # 根据固件类型重命名
+            if [[ "$filename" == *"factory"* ]]; then
+              new_name="${{ env.REPO_SHORT }}-${device_name}-factory-${{ env.CONFIG_NAME }}.bin"
+            else
+              new_name="${{ env.REPO_SHORT }}-${device_name}-sysupgrade-${{ env.CONFIG_NAME }}.bin"
+            fi
+            cp "$file" "../artifacts/${{ env.CHIP_NAME }}/$new_name"
+          done
+          
+          # 复制.config文件
+          cp .config "../artifacts/${{ env.CHIP_NAME }}/${{ env.REPO_SHORT }}-${{ env.CHIP_NAME }}-config-${{ env.CONFIG_NAME }}.config"
+          
+          # 复制.manifest文件
+          find bin/targets/* -name "*.manifest" -type f | while read file; do
+            cp "$file" "../artifacts/${{ env.CHIP_NAME }}/${{ env.REPO_SHORT }}-${{ env.CHIP_NAME }}-config-${{ env.CONFIG_NAME }}.manifest"
+          done
+          
+          # 复制.config.buildinfo文件
+          find bin/targets/* -name "*.config.buildinfo" -type f | while read file; do
+            cp "$file" "../artifacts/${{ env.CHIP_NAME }}/${{ env.REPO_SHORT }}-${{ env.CHIP_NAME }}-config-${{ env.CONFIG_NAME }}.config.buildinfo"
+          done
+          
+          # 复制日志文件
+          mkdir -p "../artifacts/${{ env.CHIP_NAME }}/logs"
+          find . -name "*.log" -type f | head -10 | while read log_file; do
+            cp "$log_file" "../artifacts/${{ env.CHIP_NAME }}/logs/"
+          done
+          
+          # 复制软件包
+          mkdir -p "../artifacts/${{ env.CHIP_NAME }}/packages"
+          find bin/packages/* -name "*.ipk" -type f | while read pkg; do
+            cp "$pkg" "../artifacts/${{ env.CHIP_NAME }}/packages/"
+          done
+          
+          echo "Artifacts processed successfully"
+
+      # 上传产物到GitHub Release
+      - name: Upload Artifacts to Release
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 16 * * 5'
+        run: |
+          cd artifacts
+          
+          # 打包配置文件
+          tar -czf "${{ env.CHIP_NAME }}-config.tar.gz" "${{ env.CHIP_NAME }}/*.config" "${{ env.CHIP_NAME }}/*.manifest" "${{ env.CHIP_NAME }}/*.config.buildinfo"
+          
+          # 打包日志文件
+          tar -czf "${{ env.CHIP_NAME }}-log.tar.gz" "${{ env.CHIP_NAME }}/logs"
+          
+          # 打包软件包
+          tar -czf "${{ env.CHIP_NAME }}-app.tar.gz" "${{ env.CHIP_NAME }}/packages"
+          
+          echo "All artifacts packaged successfully"
+
+      # 发布到Release
+      - name: Publish Release
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 16 * * 5'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.BUILD_DATE }}-${{ env.CHIP_NAME }}
+          name: Build ${{ env.BUILD_DATE }} for ${{ env.CHIP_NAME }}
+          body: |
+            ## Build Information
+            
+            **Default Management Address:** 192.168.111.1
+            **Default User:** root
+            **Default Password:** none
+            **Default WiFi Password:** 12345678
+            
+            **Devices:** 京东云亚瑟、雅典娜
+            **Kernel Version:** $(cd openwrt-source && grep "CONFIG_KERNEL_VERSION" .config | cut -d '=' -f2)
+            **Author:** Mary
+            **Build Date:** ${{ env.BUILD_DATE }}
+            **Build Time:** ${{ env.BUILD_TIME }}
+            
+            **Compiled LuCI Apps List:**
+            $(cd openwrt-source && ls bin/packages/*/base/luci-app-* 2>/dev/null | sed 's/.*luci-app-//' | sort | tr '\n' ',' | sed 's/,$//')
+            
+            ### Firmware Files
+            - Configuration files: ${{ env.CHIP_NAME }}-config.tar.gz
+            - Logs: ${{ env.CHIP_NAME }}-log.tar.gz
+            - Applications: ${{ env.CHIP_NAME }}-app.tar.gz
+          files: |
+            artifacts/${{ env.CHIP_NAME }}-config.tar.gz
+            artifacts/${{ env.CHIP_NAME }}-log.tar.gz
+            artifacts/${{ env.CHIP_NAME }}-app.tar.gz
+          draft: false
+          prerelease: false
