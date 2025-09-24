@@ -64,13 +64,78 @@ jobs:
           echo "BUILD_DATE=$(date +%Y-%m-%d)" >> $GITHUB_ENV
           echo "BUILD_TIME=$(date +%H:%M:%S)" >> $GITHUB_ENV
 
-      # 初始化环境
+      # 初始化环境 - 安装必要依赖
       - name: 初始化环境 (Ubuntu 22.04)
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo -E apt-get -y update
-          sudo -E apt-get -y install $(curl -fsSL is.gd/depends_ubuntu_2204)
+          # 安装编译OpenWrt所需的基础依赖
+          sudo -E apt-get -y install \
+            build-essential \
+            libncurses5-dev \
+            zlib1g-dev \
+            gawk \
+            gcc-multilib \
+            flex \
+            git-core \
+            gettext \
+            libssl-dev \
+            xsltproc \
+            rsync \
+            unzip \
+            wget \
+            curl \
+            libelf-dev \
+            libudev-dev \
+            libpci-dev \
+            libiberty-dev \
+            libreadline-dev \
+            libncurses-dev \
+            libxml2-dev \
+            libxslt1-dev \
+            libgmp-dev \
+            libmpfr-dev \
+            libmpc-dev \
+            libisl-dev \
+            libcloog-dev \
+            libpam-dev \
+            libgpiod-dev \
+            # 用于解决特定编译错误的额外依赖
+            libpam0g-dev \
+            libgpiod2 \
+            libgpiod-dev \
+            libpam-modules \
+            libpam-modules-bin \
+            libpam-runtime \
+            libpam-systemd \
+            # 其他可能需要的依赖
+            libselinux1-dev \
+            libsepol-dev \
+            libcap-ng-dev \
+            libattr1-dev \
+            libacl1-dev \
+            libblkid-dev \
+            libmount-dev \
+            libsmartcols-dev \
+            libuuid-dev \
+            libudev-dev \
+            libsystemd-dev \
+            # 一些额外的开发库
+            libglib2.0-dev \
+            libgobject-2.0-dev \
+            libgthread-2.0-dev \
+            libgmodule-2.0-dev \
+            libglib-2.0-dev-bin \
+            # 修复终端问题的依赖
+            ncurses-term \
+            # Python相关依赖
+            python3 \
+            python3-dev \
+            python3-pip \
+            python3-setuptools \
+            python3-wheel
+          
           sudo -E systemctl daemon-reload
           sudo timedatectl set-timezone "$TZ"
           echo "Ubuntu 22.04 环境初始化完成"
@@ -174,6 +239,8 @@ jobs:
         run: |
           cd openwrt-source
           echo "正在编译工具链..."
+          # 修复终端问题
+          export TERM=xterm
           make toolchain/compile -j$(nproc) || { echo "工具链编译失败"; exit 1; }
           echo "工具链编译成功"
 
@@ -183,6 +250,8 @@ jobs:
         run: |
           cd openwrt-source
           echo "正在编译内核..."
+          # 修复终端问题
+          export TERM=xterm
           make kernel/compile -j$(nproc) || { echo "内核编译失败"; exit 1; }
           echo "内核编译成功"
 
@@ -192,6 +261,8 @@ jobs:
         run: |
           cd openwrt-source
           echo "正在编译依赖包..."
+          # 修复终端问题
+          export TERM=xterm
           make package/compile -j$(nproc) || { echo "依赖包编译失败"; exit 1; }
           echo "依赖包编译成功"
 
@@ -201,6 +272,8 @@ jobs:
         run: |
           cd openwrt-source
           echo "正在编译基础系统..."
+          # 修复终端问题
+          export TERM=xterm
           make target/compile -j$(nproc) || { echo "基础系统编译失败"; exit 1; }
           echo "基础系统编译成功"
 
@@ -210,6 +283,8 @@ jobs:
         run: |
           cd openwrt-source
           echo "正在编译软件包..."
+          # 修复终端问题
+          export TERM=xterm
           make package/index
           make package/compile -j$(nproc) || { echo "软件包编译失败"; exit 1; }
           echo "软件包编译成功"
@@ -219,6 +294,8 @@ jobs:
         run: |
           cd openwrt-source
           echo "正在生成固件..."
+          # 修复终端问题
+          export TERM=xterm
           make -j$(nproc) || { echo "固件生成失败"; exit 1; }
           echo "固件生成成功"
 
