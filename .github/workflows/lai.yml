@@ -93,6 +93,11 @@ jobs:
             exit 1
           fi
           
+          # 调试信息：显示配置文件内容片段
+          echo "=== 配置文件内容片段 ===" >> logs/error.log
+          grep -E "CONFIG_TARGET_DEVICE_|CONFIG_TARGET_BOARD=|CONFIG_TARGET_SUBTARGET=" temp_config/.config >> logs/error.log
+          echo "========================" >> logs/error.log
+          
       - name: 提取设备信息
         run: |
           set -e
@@ -112,13 +117,33 @@ jobs:
           fi
           echo "DEVICE_NAME=${DEVICE_NAME}" >> $GITHUB_ENV
           
-          # 提取目标架构信息
-          TARGET_BOARD=$(grep '^CONFIG_TARGET_BOARD=' temp_config/.config | cut -d'"' -f2)
-          TARGET_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' temp_config/.config | cut -d'"' -f2)
-          if [ -z "$TARGET_BOARD" ] || [ -z "$TARGET_SUBTARGET" ]; then
-            echo "错误：无法从配置文件中提取目标架构信息" >> logs/error.log
-            exit 1
+          # 提取目标架构信息（改进的提取逻辑）
+          # 尝试多种可能的格式
+          TARGET_BOARD=$(grep '^CONFIG_TARGET_BOARD=' temp_config/.config | sed -n 's/CONFIG_TARGET_BOARD=\(.*\)/\1/p' | tr -d '"')
+          TARGET_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' temp_config/.config | sed -n 's/CONFIG_TARGET_SUBTARGET=\(.*\)/\1/p' | tr -d '"')
+          
+          # 如果没有找到，尝试另一种格式
+          if [ -z "$TARGET_BOARD" ]; then
+            TARGET_BOARD=$(grep '^CONFIG_TARGET_BOARD=' temp_config/.config | cut -d'=' -f2 | tr -d '"')
           fi
+          if [ -z "$TARGET_SUBTARGET" ]; then
+            TARGET_SUBTARGET=$(grep '^CONFIG_TARGET_SUBTARGET=' temp_config/.config | cut -d'=' -f2 | tr -d '"')
+          fi
+          
+          # 如果仍然没有找到，尝试从设备名称推断
+          if [ -z "$TARGET_BOARD" ] || [ -z "$TARGET_SUBTARGET" ]; then
+            echo "警告：无法从配置文件中提取目标架构信息，尝试从设备名称推断" >> logs/error.log
+            # 从设备名称中提取架构信息（例如：jdcloud_re-ss-01 可能包含 qualcommax 和 ipq60xx）
+            if [[ "$DEVICE_NAME" == *"qualcommax"* ]]; then
+              TARGET_BOARD="qualcommax"
+              TARGET_SUBTARGET="ipq60xx"
+              echo "推断的目标架构: $TARGET_BOARD/$TARGET_SUBTARGET" >> logs/error.log
+            else
+              echo "错误：无法推断目标架构信息" >> logs/error.log
+              exit 1
+            fi
+          fi
+          
           echo "TARGET_BOARD=${TARGET_BOARD}" >> $GITHUB_ENV
           echo "TARGET_SUBTARGET=${TARGET_SUBTARGET}" >> $GITHUB_ENV
           
