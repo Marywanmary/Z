@@ -35,6 +35,7 @@ jobs:
         config_type: [Ultra, Max, Pro]
         # 未来可扩展其他芯片
         # chip: [ipq60xx, ipq80xx, mtk]
+      max-parallel: 3
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -98,10 +99,10 @@ jobs:
           grep -E "CONFIG_TARGET_DEVICE_" temp_config/.config >> logs/error.log
           echo "========================" >> logs/error.log
           
-      - name: 提取设备名称
+      - name: 提取设备信息
         run: |
           set -e
-          # 从配置文件中提取设备名称（根据实际格式）
+          # 从配置文件中提取所有设备名称
           # 查找所有启用的设备配置行
           DEVICE_LINES=$(grep '^CONFIG_TARGET_DEVICE_.*=y$' temp_config/.config)
           if [ -z "$DEVICE_LINES" ]; then
@@ -109,31 +110,29 @@ jobs:
             exit 1
           fi
           
-          # 提取所有设备名称（从DEVICE_到=y之间的部分）
+          # 提取所有设备名称（使用正则表达式）
           DEVICE_NAMES=""
           for line in $DEVICE_LINES; do
-            # 提取设备名称（例如：从CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y中提取jdcloud_re-ss-01）
-            DEVICE_NAME=$(echo "$line" | sed -n 's/.*DEVICE_\(.*\)=y/\1/p')
+            # 提取设备名称（从CONFIG_TARGET_DEVICE_..._DEVICE_...=y中提取设备名称部分）
+            DEVICE_NAME=$(echo "$line" | sed -n 's/^CONFIG_TARGET_DEVICE_[^_]*_[^_]*_DEVICE_\([^=]*\)=y/\1/p')
             if [ -n "$DEVICE_NAME" ]; then
-              # 如果设备名称包含qualcommax_ipq60xx_，则去掉这部分
-              if [[ "$DEVICE_NAME" == *"qualcommax_ipq60xx_"* ]]; then
-                DEVICE_NAME=$(echo "$DEVICE_NAME" | sed 's/qualcommax_ipq60xx_//')
-              fi
               DEVICE_NAMES="$DEVICE_NAMES $DEVICE_NAME"
             fi
           done
           
-          # 取第一个设备名称作为主要设备
-          FIRST_DEVICE=$(echo "$DEVICE_NAMES" | awk '{print $1}')
-          if [ -z "$FIRST_DEVICE" ]; then
+          # 检查是否有设备
+          DEVICE_COUNT=$(echo "$DEVICE_NAMES" | wc -w)
+          if [ "$DEVICE_COUNT" -eq 0 ]; then
             echo "错误：无法从配置文件中提取设备名称" >> logs/error.log
             exit 1
           fi
-          echo "DEVICE_NAME=${FIRST_DEVICE}" >> $GITHUB_ENV
+          
+          # 将设备名称列表保存到环境变量（用空格分隔）
+          echo "DEVICE_NAMES=${DEVICE_NAMES}" >> $GITHUB_ENV
           
           # 调试信息
-          echo "提取到的设备名称: $FIRST_DEVICE" >> logs/error.log
-          echo "所有设备名称: $DEVICE_NAMES" >> logs/error.log
+          echo "提取到的设备名称: $DEVICE_NAMES" >> logs/error.log
+          echo "设备数量: $DEVICE_COUNT" >> logs/error.log
           
       - name: 克隆源码
         run: |
@@ -144,8 +143,18 @@ jobs:
         run: |
           set -e
           cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          echo "更新feeds..." >> ../logs/error.log
+          ./scripts/feeds update -a 2>&1 | tee -a ../logs/error.log
+          echo "安装feeds..." >> ../logs/error.log
+          ./scripts/feeds install -a 2>&1 | tee -a ../logs/error.log
+          
+      - name: 安装依赖
+        run: |
+          set -e
+          cd openwrt
+          echo "安装编译依赖..." >> ../logs/error.log
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget
           
       - name: 编译固件
         run: |
@@ -156,11 +165,16 @@ jobs:
           cp ../temp_config/.config .config
           make defconfig
           
-          # 编译（严格错误检查）
-          make -j$(nproc) 2>&1 | tee build.log
+          # 编译（严格错误检查，详细日志）
+          echo "开始编译..." >> ../logs/error.log
+          make -j$(nproc) V=s 2>&1 | tee -a ../logs/error.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "错误：编译失败" >> ../logs/error.log
-            exit 1
+            echo "错误：编译失败，尝试使用单线程重新编译..." >> ../logs/error.log
+            make -j1 V=sc 2>&1 | tee -a ../logs/error.log
+            if [ ${PIPESTATUS[0]} -ne 0 ]; then
+              echo "错误：单线程编译也失败" >> ../logs/error.log
+              exit 1
+            fi
           fi
           
       - name: 收集产物
@@ -168,48 +182,30 @@ jobs:
         run: |
           set -e
           # 创建临时目录
-          ARTIFACT_DIR="${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}"
+          ARTIFACT_DIR="${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}"
+          FIRMWARE_DIR="${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}-firmware"
           mkdir -p "$ARTIFACT_DIR"
+          mkdir -p "$FIRMWARE_DIR"
           
           # 定义目标目录（使用固定的目录结构）
           TARGET_DIR="openwrt/bin/targets/qualcommax/${{ env.CHIP }}"
           
-          # 复制固件并重命名（如果存在）
-          if [ -d "$TARGET_DIR" ]; then
-            for file in "$TARGET_DIR"/*.bin; do
-              if [ -f "$file" ]; then
-                # 提取固件类型（factory/sysupgrade）
-                if [[ "$file" == *"factory"* ]]; then
-                  FIRMWARE_TYPE="factory"
-                elif [[ "$file" == *"sysupgrade"* ]]; then
-                  FIRMWARE_TYPE="sysupgrade"
-                else
-                  continue
-                fi
-                
-                # 重命名规则：分支缩写-芯片变量-设备名称-固件类型-配置.bin
-                NEW_NAME="${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${FIRMWARE_TYPE}-${{ env.CONFIG_TYPE }}.bin"
-                cp "$file" "$ARTIFACT_DIR/$NEW_NAME"
-              fi
-            done
-          fi
-          
-          # 复制配置文件并重命名
-          cp temp_config/.config "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}.config"
+          # 复制配置文件并重命名（全局配置文件）
+          cp temp_config/.config "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}.config"
           
           # 复制config.buildinfo文件（如果存在）
           if [ -f "openwrt/.config.buildinfo" ]; then
-            cp openwrt/.config.buildinfo "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}.config.buildinfo"
+            cp openwrt/.config.buildinfo "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}.config.buildinfo"
           fi
           
           # 复制manifest文件（如果存在）
           if [ -d "$TARGET_DIR" ] && [ -f "$TARGET_DIR"/*.manifest ]; then
-            cp "$TARGET_DIR"/*.manifest "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}.manifest"
+            cp "$TARGET_DIR"/*.manifest "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}.manifest"
           fi
           
           # 复制日志（如果存在）
           if [ -f "openwrt/build.log" ]; then
-            cp openwrt/build.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}-build.log"
+            cp openwrt/build.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}-build.log"
           fi
           
           # 复制软件包（允许覆盖）
@@ -220,16 +216,62 @@ jobs:
           
           # 复制错误日志（如果有）
           if [ -f logs/error.log ] && [ -s logs/error.log ]; then
-            cp logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}-error.log"
+            cp logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}-error.log"
+          fi
+          
+          # 处理每个设备的固件（只处理包含-squashfs-的.bin文件）
+          if [ -d "$TARGET_DIR" ]; then
+            for file in "$TARGET_DIR"/*.bin; do
+              if [ -f "$file" ]; then
+                # 只处理包含-squashfs-的.bin文件
+                if [[ "$file" != *"-squashfs-"* ]]; then
+                  continue
+                fi
+                
+                # 从文件名中提取设备名称（使用通用正则表达式）
+                DEVICE_NAME_FROM_FILE=$(basename "$file" | sed -n 's/^.*-\(.*\)-squashfs-.*\.bin$/\1/p')
+                
+                # 如果提取失败，跳过该文件
+                if [ -z "$DEVICE_NAME_FROM_FILE" ]; then
+                  echo "警告：无法从文件名中提取设备名称: $(basename "$file")" >> logs/error.log
+                  continue
+                fi
+                
+                # 提取固件类型（factory/sysupgrade）
+                if [[ "$file" == *"factory"* ]]; then
+                  FIRMWARE_TYPE="factory"
+                elif [[ "$file" == *"sysupgrade"* ]]; then
+                  FIRMWARE_TYPE="sysupgrade"
+                else
+                  continue
+                fi
+                
+                # 重命名规则：分支缩写-设备名称-固件类型-配置.bin
+                NEW_NAME="${{ env.REPO_SHORT }}-${DEVICE_NAME_FROM_FILE}-${FIRMWARE_TYPE}-${{ env.CONFIG_TYPE }}.bin"
+                cp "$file" "$FIRMWARE_DIR/$NEW_NAME"
+                
+                echo "处理固件: $(basename "$file") -> $NEW_NAME" >> logs/error.log
+              fi
+            done
           fi
           
       - name: 上传产物
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}
+          name: ${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}
           path: |
-            ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}/
+            ${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}/
+          retention-days: 7
+          if-no-files-found: error
+          
+      - name: 上传固件
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}-firmware
+          path: |
+            ${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}-firmware/
           retention-days: 7
           if-no-files-found: error
           
@@ -237,6 +279,7 @@ jobs:
   package-and-release:
     needs: build
     runs-on: ubuntu-22.04
+    if: always()
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -249,7 +292,7 @@ jobs:
       - name: 准备发布目录
         run: |
           set -e
-          mkdir -p release/{config,log,app,error}
+          mkdir -p release/{config,log,app,firmware,assets}
           
           # 收集配置文件
           find all-artifacts -name "*.config" -exec cp {} release/config/ \;
@@ -258,12 +301,13 @@ jobs:
           
           # 收集日志文件
           find all-artifacts -name "*-build.log" -exec cp {} release/log/ \;
-          
-          # 收集错误日志
-          find all-artifacts -name "*-error.log" -exec cp {} release/error/ \;
+          find all-artifacts -name "*-error.log" -exec cp {} release/log/ \;
           
           # 收集软件包（允许覆盖重名文件）
           find all-artifacts -name "packages" -type d -exec cp -r {} release/app/ \;
+          
+          # 收集固件文件
+          find all-artifacts -name "*.bin" -exec cp {} release/firmware/ \;
           
           # 打包配置文件
           tar -czf release/${{ env.CHIP }}-config.tar.gz -C release/config .
@@ -271,17 +315,19 @@ jobs:
           # 打包日志文件
           tar -czf release/${{ env.CHIP }}-log.tar.gz -C release/log .
           
-          # 打包错误日志
-          if [ -d release/error ] && [ "$(ls -A release/error)" ]; then
-            tar -czf release/${{ env.CHIP }}-error.tar.gz -C release/error .
-          fi
-          
           # 打包软件包
           tar -czf release/${{ env.CHIP }}-app.tar.gz -C release/app .
+          
+          # 复制所有需要上传的文件到assets目录
+          cp release/${{ env.CHIP }}-config.tar.gz release/assets/
+          cp release/${{ env.CHIP }}-log.tar.gz release/assets/
+          cp release/${{ env.CHIP }}-app.tar.gz release/assets/
+          cp release/firmware/*.bin release/assets/ 2>/dev/null || true
           
           # 提取内核版本和软件包列表
           KERNEL_VERSION=""
           LUCI_APPS=""
+          DEVICE_LIST=""
           
           # 从任意一个配置文件中提取内核版本
           for config_file in release/config/*.config; do
@@ -297,80 +343,51 @@ jobs:
             LUCI_APPS=$(find release/app -name "luci-app-*.ipk" | sed 's/.*\///g' | sort | uniq | tr '\n' ' ')
           fi
           
+          # 从固件文件名中提取设备列表
+          if [ -d release/firmware ]; then
+            DEVICE_LIST=$(ls release/firmware/*.bin | sed -n 's/.*-\([^-]*\)-.*\.bin/\1/p' | sort | uniq | tr '\n' ' ')
+          fi
+          
           # 设置环境变量供Release使用
           echo "KERNEL_VERSION=${KERNEL_VERSION}" >> $GITHUB_ENV
           echo "LUCI_APPS=${LUCI_APPS}" >> $GITHUB_ENV
+          echo "DEVICE_LIST=${DEVICE_LIST}" >> $GITHUB_ENV
           
           # 获取当前日期
           echo "RELEASE_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
           
-      - name: 创建Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 创建Release body文件
+          cat > release/body.md << EOF
+          默认管理地址：${{ env.DEFAULT_IP }}
+          默认用户：${{ env.DEFAULT_USER }}
+          默认密码：${{ env.DEFAULT_PASS }}
+          默认WIFI密码: ${{ env.DEFAULT_WIFI }}
+          
+          固件包括（${{ env.CHIP }}）的设备：${{ env.DEVICE_LIST }}
+          
+          固件内核版本：${{ env.KERNEL_VERSION }}
+          作者: ${{ env.AUTHOR }}
+          发布时间: ${{ env.RELEASE_DATE }}
+          编译的luci-app列表：${{ env.LUCI_APPS }}
+          
+          ## 下载说明
+          - 固件文件：请从下面的附件中下载对应设备的固件文件
+          - 配置文件：${{ env.CHIP }}-config.tar.gz
+          - 编译日志：${{ env.CHIP }}-log.tar.gz
+          - 软件包：${{ env.CHIP }}-app.tar.gz
+          EOF
+          
+      - name: 创建Release并上传文件
+        uses: softprops/action-gh-release@v1
+        if: always()
         with:
           tag_name: ${{ env.RELEASE_DATE }}-${{ env.CHIP }}
-          release_name: ${{ env.CHIP }} Release ${{ env.RELEASE_DATE }}
-          body: |
-            默认管理地址：${{ env.DEFAULT_IP }}
-            默认用户：${{ env.DEFAULT_USER }}
-            默认密码：${{ env.DEFAULT_PASS }}
-            默认WIFI密码: ${{ env.DEFAULT_WIFI }}
-            
-            固件包括（${{ env.CHIP }}）的京东云亚瑟、雅典娜
-            
-            固件内核版本：${{ env.KERNEL_VERSION }}
-            作者: ${{ env.AUTHOR }}
-            发布时间: ${{ env.RELEASE_DATE }}
-            编译的luci-app列表：${{ env.LUCI_APPS }}
-            
-            ## 下载说明
-            - 固件文件：分支缩写-芯片变量-设备名称-固件类型-配置.bin
-            - 配置文件：${{ env.CHIP }}-config.tar.gz
-            - 编译日志：${{ env.CHIP }}-log.tar.gz
-            - 错误日志：${{ env.CHIP }}-error.tar.gz
-            - 软件包：${{ env.CHIP }}-app.tar.gz
+          name: ${{ env.CHIP }} Release ${{ env.RELEASE_DATE }}
+          body_path: release/body.md
+          files: |
+            release/assets/*
           draft: false
           prerelease: false
-          
-      - name: 上传配置文件包
-        uses: actions/upload-release-asset@v1
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/${{ env.CHIP }}-config.tar.gz
-          asset_name: ${{ env.CHIP }}-config.tar.gz
-          asset_content_type: application/gzip
-          
-      - name: 上传日志包
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/${{ env.CHIP }}-log.tar.gz
-          asset_name: ${{ env.CHIP }}-log.tar.gz
-          asset_content_type: application/gzip
-          
-      - name: 上传错误日志包（如果有）
-        if: hashFiles('release/${{ env.CHIP }}-error.tar.gz') != ''
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/${{ env.CHIP }}-error.tar.gz
-          asset_name: ${{ env.CHIP }}-error.tar.gz
-          asset_content_type: application/gzip
-          
-      - name: 上传软件包
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/${{ env.CHIP }}-app.tar.gz
-          asset_name: ${{ env.CHIP }}-app.tar.gz
-          asset_content_type: application/gzip
