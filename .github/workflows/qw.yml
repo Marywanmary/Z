@@ -75,11 +75,64 @@ jobs:
           sudo timedatectl set-timezone "$TZ"
           echo "Ubuntu 22.04 环境初始化完成"
 
-      # 创建构建目录
-      - name: 创建构建目录
-        run: |
-          mkdir -p build
-          mkdir -p artifacts
+      # L1: 工具链 - 全分支共享，编译一次复用
+      - name: 缓存工具链 (L1)
+        id: cache-toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt-source/staging_dir/toolchain-*
+            openwrt-source/staging_dir/target-*
+          key: toolchain-${{ matrix.arch.chip }}
+          restore-keys: |
+            toolchain-${{ matrix.arch.chip }}
+
+      # L2: 内核 - 分支内共享
+      - name: 缓存内核 (L2)
+        id: cache-kernel
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt-source/kernel-*
+            openwrt-source/target/linux/*
+          key: kernel-${{ matrix.repo.short }}-${{ matrix.arch.chip }}
+          restore-keys: |
+            kernel-${{ matrix.repo.short }}-${{ matrix.arch.chip }}
+
+      # L3: 依赖包 - 分支内共享，支持增量更新，基础系统前置条件
+      - name: 缓存依赖包 (L3)
+        id: cache-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt-source/packages/*
+            openwrt-source/feed/*
+          key: deps-${{ matrix.repo.short }}-${{ matrix.arch.chip }}
+          restore-keys: |
+            deps-${{ matrix.repo.short }}-${{ matrix.arch.chip }}
+
+      # L4: 基础系统 - 分支内共享，依赖内核头文件
+      - name: 缓存基础系统 (L4)
+        id: cache-base
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt-source/target/*
+            openwrt-source/bin/packages/*
+          key: base-${{ matrix.repo.short }}-${{ matrix.arch.chip }}
+          restore-keys: |
+            base-${{ matrix.repo.short }}-${{ matrix.arch.chip }}
+
+      # L5: 软件包 - 全分支共享，支持并行
+      - name: 缓存软件包 (L5)
+        id: cache-pkgs
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt-source/bin/packages/*
+          key: pkgs-${{ matrix.arch.chip }}
+          restore-keys: |
+            pkgs-${{ matrix.arch.chip }}
 
       # 克隆OpenWrt源码
       - name: 克隆OpenWrt源码
@@ -115,41 +168,45 @@ jobs:
           
           echo "配置完成"
 
-      # 编译工具链（L1层）
-      - name: 编译工具链 (L1层)
-        if: github.run_number == 1 || github.event_name == 'workflow_dispatch'
+      # L1: 工具链编译 (全分支共享)
+      - name: 编译工具链 (L1)
+        if: github.run_number == 1 || github.event_name == 'workflow_dispatch' || steps.cache-toolchain.outputs.cache-hit != 'true'
         run: |
           cd openwrt-source
           echo "正在编译工具链..."
           make toolchain/compile -j$(nproc) || { echo "工具链编译失败"; exit 1; }
           echo "工具链编译成功"
 
-      # 编译内核（L2层）
-      - name: 编译内核 (L2层)
+      # L2: 内核编译 (分支内共享)
+      - name: 编译内核 (L2)
+        if: steps.cache-toolchain.outputs.cache-hit != 'true' || steps.cache-kernel.outputs.cache-hit != 'true'
         run: |
           cd openwrt-source
           echo "正在编译内核..."
           make kernel/compile -j$(nproc) || { echo "内核编译失败"; exit 1; }
           echo "内核编译成功"
 
-      # 编译依赖包（L3层）
-      - name: 编译依赖包 (L3层)
+      # L3: 依赖包编译 (分支内共享)
+      - name: 编译依赖包 (L3)
+        if: steps.cache-toolchain.outputs.cache-hit != 'true' && steps.cache-kernel.outputs.cache-hit != 'true' || steps.cache-deps.outputs.cache-hit != 'true'
         run: |
           cd openwrt-source
           echo "正在编译依赖包..."
           make package/compile -j$(nproc) || { echo "依赖包编译失败"; exit 1; }
           echo "依赖包编译成功"
 
-      # 编译基础系统（L4层）
-      - name: 编译基础系统 (L4层)
+      # L4: 基础系统编译 (分支内共享)
+      - name: 编译基础系统 (L4)
+        if: steps.cache-toolchain.outputs.cache-hit != 'true' && steps.cache-kernel.outputs.cache-hit != 'true' && steps.cache-deps.outputs.cache-hit != 'true' || steps.cache-base.outputs.cache-hit != 'true'
         run: |
           cd openwrt-source
           echo "正在编译基础系统..."
           make target/compile -j$(nproc) || { echo "基础系统编译失败"; exit 1; }
           echo "基础系统编译成功"
 
-      # 编译软件包（L5层）
-      - name: 编译软件包 (L5层)
+      # L5: 软件包编译 (全分支共享)
+      - name: 编译软件包 (L5)
+        if: steps.cache-toolchain.outputs.cache-hit != 'true' && steps.cache-kernel.outputs.cache-hit != 'true' && steps.cache-deps.outputs.cache-hit != 'true' && steps.cache-base.outputs.cache-hit != 'true' || steps.cache-pkgs.outputs.cache-hit != 'true'
         run: |
           cd openwrt-source
           echo "正在编译软件包..."
@@ -212,6 +269,55 @@ jobs:
           done
           
           echo "产物处理完成"
+
+      # 保存缓存 - L1: 工具链 (全分支共享)
+      - name: 保存工具链缓存 (L1)
+        if: steps.cache-toolchain.outputs.cache-hit != 'true' && (github.run_number == 1 || github.event_name == 'workflow_dispatch')
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            openwrt-source/staging_dir/toolchain-*
+            openwrt-source/staging_dir/target-*
+          key: toolchain-${{ matrix.arch.chip }}
+
+      # 保存缓存 - L2: 内核 (分支内共享)
+      - name: 保存内核缓存 (L2)
+        if: steps.cache-kernel.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            openwrt-source/kernel-*
+            openwrt-source/target/linux/*
+          key: kernel-${{ matrix.repo.short }}-${{ matrix.arch.chip }}
+
+      # 保存缓存 - L3: 依赖包 (分支内共享)
+      - name: 保存依赖包缓存 (L3)
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            openwrt-source/packages/*
+            openwrt-source/feed/*
+          key: deps-${{ matrix.repo.short }}-${{ matrix.arch.chip }}
+
+      # 保存缓存 - L4: 基础系统 (分支内共享)
+      - name: 保存基础系统缓存 (L4)
+        if: steps.cache-base.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            openwrt-source/target/*
+            openwrt-source/bin/packages/*
+          key: base-${{ matrix.repo.short }}-${{ matrix.arch.chip }}
+
+      # 保存缓存 - L5: 软件包 (全分支共享)
+      - name: 保存软件包缓存 (L5)
+        if: steps.cache-pkgs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            openwrt-source/bin/packages/*
+          key: pkgs-${{ matrix.arch.chip }}
 
       # 上传产物到GitHub Release
       - name: 上传产物到Release
