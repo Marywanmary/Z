@@ -6,9 +6,6 @@ on:
     - cron: '0 16 * * 4'
   workflow_dispatch:
 
-# 设置artifact保留天数
-artifact-retention-days: 7
-
 permissions:
   contents: write
 
@@ -16,13 +13,10 @@ env:
   # 芯片变量（未来可扩展）
   CHIP: ipq60xx
   # 仓库配置
-  REPOS: |
-    imm|${{ github.server_url }}/laipeng668/immortalwrt.git|master|immwrt
-    open|${{ github.server_url }}/laipeng668/openwrt.git|master|openwrt
-    lib|${{ github.server_url }}/laipeng668/openwrt-6.x.git|k6.12-nss|libwrt
+  REPOS: '["imm|${{ github.server_url }}/laipeng668/immortalwrt.git|master|immwrt", "open|${{ github.server_url }}/laipeng668/openwrt.git|master|openwrt", "lib|${{ github.server_url }}/laipeng668/openwrt-6.x.git|k6.12-nss|libwrt"]'
   
   # 配置类型（按优先级排序）
-  CONFIG_TYPES: Ultra Max Pro
+  CONFIG_TYPES: '["Ultra", "Max", "Pro"]'
   
   # 默认信息
   DEFAULT_IP: 192.168.111.1
@@ -209,6 +203,7 @@ jobs:
           path: |
             ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}/
             logs/
+          retention-days: 7
           if-no-files-found: error
           
   # 打包并发布Release
