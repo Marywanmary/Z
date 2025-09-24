@@ -155,6 +155,7 @@ jobs:
           fi
           
       - name: 收集产物
+        if: always()
         run: |
           set -e
           # 创建临时目录
@@ -214,6 +215,7 @@ jobs:
           fi
           
       - name: 上传产物
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ env.DEVICE_NAME }}-${{ env.CONFIG_TYPE }}
