@@ -70,7 +70,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo -E apt-get -y update
-          # 安装编译OpenWrt所需的基础依赖
+          # 安装编译OpenWrt所需的基础依赖（移除了不存在的包）
           sudo -E apt-get -y install \
             build-essential \
             libncurses5-dev \
@@ -98,13 +98,12 @@ jobs:
             libmpfr-dev \
             libmpc-dev \
             libisl-dev \
-            libcloog-dev \
+            # 移除了 libcloog-dev（不存在于Ubuntu 22.04）
             libpam-dev \
             libgpiod-dev \
             # 用于解决特定编译错误的额外依赖
             libpam0g-dev \
             libgpiod2 \
-            libgpiod-dev \
             libpam-modules \
             libpam-modules-bin \
             libpam-runtime \
