@@ -15,10 +15,11 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        # 定义三个分支及其配置
+        # 按照分支顺序：immwrt -> openwrt -> libwrt
+        # 每个分支按Ultra -> Max -> Pro顺序编译
         repo:
-          - { name: "openwrt", url: "https://github.com/laipeng668/openwrt.git", branch: "master", short: "openwrt" }
           - { name: "immortalwrt", url: "https://github.com/laipeng668/immortalwrt.git", branch: "master", short: "immwrt" }
+          - { name: "openwrt", url: "https://github.com/laipeng668/openwrt.git", branch: "master", short: "openwrt" }
           - { name: "libwrt", url: "https://github.com/laipeng668/openwrt-6.x.git", branch: "k6.12-nss", short: "libwrt" }
         config:
           - { name: "Ultra", file: "Ultra.config" }
@@ -44,7 +45,6 @@ jobs:
           dotnet: true
           haskell: true
           large-packages: true
-          swap: true
 
       # 检出代码
       - name: 检出代码
