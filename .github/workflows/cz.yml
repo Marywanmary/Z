@@ -197,11 +197,21 @@ jobs:
           cat ../configs/${{ matrix.branch.repo_short }}_base.config >> .config
           cat ../configs/Ultra.config >> .config
           
-          # 生成最终配置
-          make defconfig
+          # 使用olddefconfig处理新选项，避免交互式提示
+          make olddefconfig
+          
+          # 验证配置文件是否有效
+          if ! grep -q "CONFIG_TARGET_.*=y" .config; then
+            echo "错误：配置文件中没有有效的目标设备配置"
+            exit 1
+          fi
           
           # 从配置文件中提取设备名称
           DEVICE_NAME=$(grep CONFIG_TARGET_DEVICE_ .config | sed 's/.*DEVICE_\(.*\)=y/\1/' | head -n1)
+          if [ -z "$DEVICE_NAME" ]; then
+            echo "错误：无法从配置文件中提取设备名称"
+            exit 1
+          fi
           echo "DEVICE_NAME=${DEVICE_NAME}" >> $GITHUB_ENV
 
       - name: 分层编译
@@ -219,7 +229,8 @@ jobs:
           # L2: 内核 (如果缓存未命中)
           if [ "${{ steps.cache-kernel.outputs.cache-hit }}" != "true" ]; then
             echo "编译内核..."
-            make target/compile -j$(nproc) V=s || { echo "内核编译失败"; exit 1; }
+            # 确保内核配置是最新的
+            make target/linux/compile V=s || { echo "内核编译失败"; exit 1; }
           fi
           
           # L3: 依赖包 (如果缓存未命中)
@@ -439,11 +450,21 @@ jobs:
           cat ../configs/${{ matrix.branch.repo_short }}_base.config >> .config
           cat ../configs/Max.config >> .config
           
-          # 生成最终配置
-          make defconfig
+          # 使用olddefconfig处理新选项，避免交互式提示
+          make olddefconfig
+          
+          # 验证配置文件是否有效
+          if ! grep -q "CONFIG_TARGET_.*=y" .config; then
+            echo "错误：配置文件中没有有效的目标设备配置"
+            exit 1
+          fi
           
           # 从配置文件中提取设备名称
           DEVICE_NAME=$(grep CONFIG_TARGET_DEVICE_ .config | sed 's/.*DEVICE_\(.*\)=y/\1/' | head -n1)
+          if [ -z "$DEVICE_NAME" ]; then
+            echo "错误：无法从配置文件中提取设备名称"
+            exit 1
+          fi
           echo "DEVICE_NAME=${DEVICE_NAME}" >> $GITHUB_ENV
 
       - name: 分层编译
@@ -461,7 +482,8 @@ jobs:
           # L2: 内核 (如果缓存未命中)
           if [ "${{ steps.cache-kernel.outputs.cache-hit }}" != "true" ]; then
             echo "编译内核..."
-            make target/compile -j$(nproc) V=s || { echo "内核编译失败"; exit 1; }
+            # 确保内核配置是最新的
+            make target/linux/compile V=s || { echo "内核编译失败"; exit 1; }
           fi
           
           # L3: 依赖包 (如果缓存未命中)
@@ -681,11 +703,21 @@ jobs:
           cat ../configs/${{ matrix.branch.repo_short }}_base.config >> .config
           cat ../configs/Pro.config >> .config
           
-          # 生成最终配置
-          make defconfig
+          # 使用olddefconfig处理新选项，避免交互式提示
+          make olddefconfig
+          
+          # 验证配置文件是否有效
+          if ! grep -q "CONFIG_TARGET_.*=y" .config; then
+            echo "错误：配置文件中没有有效的目标设备配置"
+            exit 1
+          fi
           
           # 从配置文件中提取设备名称
           DEVICE_NAME=$(grep CONFIG_TARGET_DEVICE_ .config | sed 's/.*DEVICE_\(.*\)=y/\1/' | head -n1)
+          if [ -z "$DEVICE_NAME" ]; then
+            echo "错误：无法从配置文件中提取设备名称"
+            exit 1
+          fi
           echo "DEVICE_NAME=${DEVICE_NAME}" >> $GITHUB_ENV
 
       - name: 分层编译
@@ -703,7 +735,8 @@ jobs:
           # L2: 内核 (如果缓存未命中)
           if [ "${{ steps.cache-kernel.outputs.cache-hit }}" != "true" ]; then
             echo "编译内核..."
-            make target/compile -j$(nproc) V=s || { echo "内核编译失败"; exit 1; }
+            # 确保内核配置是最新的
+            make target/linux/compile V=s || { echo "内核编译失败"; exit 1; }
           fi
           
           # L3: 依赖包 (如果缓存未命中)
