@@ -17,14 +17,14 @@ jobs:
       matrix:
         # 按照分支顺序：immwrt -> openwrt -> libwrt
         # 每个分支按Ultra -> Max -> Pro顺序编译
-        repo:
-          - { name: "immortalwrt", url: "https://github.com/laipeng668/immortalwrt.git", branch: "master", short: "immwrt" }
-          - { name: "openwrt", url: "https://github.com/laipeng668/openwrt.git", branch: "master", short: "openwrt" }
-          - { name: "libwrt", url: "https://github.com/laipeng668/openwrt-6.x.git", branch: "k6.12-nss", short: "libwrt" }
         config:
           - { name: "Ultra", file: "Ultra.config" }
           - { name: "Max", file: "Max.config" }
           - { name: "Pro", file: "Pro.config" }
+        repo:
+          - { name: "immortalwrt", url: "https://github.com/laipeng668/immortalwrt.git", branch: "master", short: "immwrt" }
+          - { name: "openwrt", url: "https://github.com/laipeng668/openwrt.git", branch: "master", short: "openwrt" }
+          - { name: "libwrt", url: "https://github.com/laipeng668/openwrt-6.x.git", branch: "k6.12-nss", short: "libwrt" }
         # 架构配置
         arch:
           - { name: "ipq60xx", chip: "ipq60xx" }
