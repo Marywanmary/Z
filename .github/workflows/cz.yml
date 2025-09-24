@@ -179,7 +179,7 @@ jobs:
         run: |
           # 进入源码目录并执行自定义脚本
           cd openwrt
-          chmod +x ../scripts/scripts.sh
+          chmod +x ../scripts/script.sh
           ../scripts/scripts.sh 2>&1 | tee build.log
         continue-on-error: false
 
