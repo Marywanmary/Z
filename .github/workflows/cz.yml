@@ -8,7 +8,7 @@ on:
       ubuntu_version:
         description: 'Ubuntu版本 (22.04 或 24.04)'
         required: false
-        default: '22.04'
+        default: '24.04'
         type: choice
         options:
           - '22.04'
@@ -28,16 +28,11 @@ jobs:
   cleanup:
     strategy:
       matrix:
-        ubuntu_version: ['22.04', '24.04']
-        include:
-          - ubuntu_version: '22.04'
-            actual_version: '22.04'
-          - ubuntu_version: '24.04'
-            actual_version: '24.04'
-    runs-on: ubuntu-${{ matrix.actual_version }}
+        ubuntu_version: ${{ github.event.inputs.ubuntu_version || '24.04' }}
+    runs-on: ubuntu-${{ matrix.ubuntu_version }}
     steps:
       - name: 清理磁盘空间 (Ubuntu 22.04)
-        if: matrix.actual_version == '22.04'
+        if: matrix.ubuntu_version == '22.04'
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true
@@ -46,7 +41,7 @@ jobs:
           swap-storage: true
       
       - name: 清理磁盘空间 (Ubuntu 24.04)
-        if: matrix.actual_version == '24.04'
+        if: matrix.ubuntu_version == '24.04'
         uses: sbwml/actions@free-disk
         with:
           tool-cache: true
@@ -59,12 +54,7 @@ jobs:
     needs: cleanup
     strategy:
       matrix:
-        ubuntu_version: ['22.04', '24.04']
-        include:
-          - ubuntu_version: '22.04'
-            actual_version: '22.04'
-          - ubuntu_version: '24.04'
-            actual_version: '24.04'
+        ubuntu_version: ${{ github.event.inputs.ubuntu_version || '24.04' }}
         branch:
           - repo_url: https://github.com/laipeng668/immortalwrt.git
             repo_branch: master
@@ -76,13 +66,14 @@ jobs:
             repo_branch: k6.12-nss
             repo_short: libwrt
         config: [Ultra, Max, Pro] # 配置顺序确保最大缓存命中
-    runs-on: ubuntu-${{ matrix.actual_version }}
+      max-parallel: 6 # 限制并行运行数量为6
+    runs-on: ubuntu-${{ matrix.ubuntu_version }}
     steps:
       - name: 检出仓库代码
         uses: actions/checkout@v4
 
       - name: 初始化环境 (Ubuntu 22.04)
-        if: matrix.actual_version == '22.04'
+        if: matrix.ubuntu_version == '22.04'
         env:
           DEBIAN_FRONTEND: noninteractive
           TZ: Asia/Shanghai
@@ -100,7 +91,7 @@ jobs:
           echo "KERNEL_VERSION=$(make kernelversion | head -n1 | tr -d '\n')" >> $GITHUB_ENV
 
       - name: 初始化环境 (Ubuntu 24.04)
-        if: matrix.actual_version == '24.04'
+        if: matrix.ubuntu_version == '24.04'
         env:
           TZ: Asia/Shanghai
         run: |
@@ -303,13 +294,8 @@ jobs:
     needs: build
     strategy:
       matrix:
-        ubuntu_version: ['22.04', '24.04']
-        include:
-          - ubuntu_version: '22.04'
-            actual_version: '22.04'
-          - ubuntu_version: '24.04'
-            actual_version: '24.04'
-    runs-on: ubuntu-${{ matrix.actual_version }}
+        ubuntu_version: ${{ github.event.inputs.ubuntu_version || '24.04' }}
+    runs-on: ubuntu-${{ matrix.ubuntu_version }}
     steps:
       - name: 下载所有编译产物
         uses: actions/download-artifact@v4
