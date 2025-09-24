@@ -32,7 +32,7 @@ jobs:
           - imm|${{ github.server_url }}/laipeng668/immortalwrt.git|master|immwrt
           - open|${{ github.server_url }}/laipeng668/openwrt.git|master|openwrt
           - lib|${{ github.server_url }}/laipeng668/openwrt-6.x.git|k6.12-nss|libwrt
-      max-parallel: 6
+      max-parallel: 3
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
