@@ -8,7 +8,7 @@ on:
       ubuntu_version:
         description: 'Ubuntu版本 (22.04 或 24.04)'
         required: false
-        default: '24.04'
+        default: '22.04'
         type: choice
         options:
           - '22.04'
