@@ -10,6 +10,7 @@ env:
   # 未来扩展架构 (已注释)
   # CHIP_ARCH: ipq80xx
   # CHIP_ARCH: mtk
+  UBUNTU_VERSION: 22.04 # 系统版本: 22.04 或 24.04，默认为22.04
   DEFAULT_IP: 192.168.111.1
   DEFAULT_HOSTNAME: WRT
   WIFI_PASSWORD: 12345678
@@ -17,9 +18,19 @@ env:
 jobs:
   # 清理磁盘空间
   cleanup:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-${{ env.UBUNTU_VERSION }}
     steps:
-      - name: 清理磁盘空间
+      - name: 清理磁盘空间 (Ubuntu 22.04)
+        if: env.UBUNTU_VERSION == '22.04'
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+      
+      - name: 清理磁盘空间 (Ubuntu 24.04)
+        if: env.UBUNTU_VERSION == '24.04'
         uses: sbwml/actions@free-disk
         with:
           tool-cache: true
@@ -30,7 +41,7 @@ jobs:
   # 编译主流程
   build:
     needs: cleanup
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-${{ env.UBUNTU_VERSION }}
     strategy:
       matrix:
         branch:
@@ -48,15 +59,52 @@ jobs:
       - name: 检出仓库代码
         uses: actions/checkout@v4
 
-      - name: 初始化环境
+      - name: 初始化环境 (Ubuntu 22.04)
+        if: env.UBUNTU_VERSION == '22.04'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          TZ: Asia/Shanghai
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev file swig
+          # 更新软件包列表并安装编译依赖
+          sudo -E apt-get -y update
+          sudo -E apt-get -y install $(curl -fsSL is.gd/depends_ubuntu_2204)
+          
+          # 重启系统守护进程并设置时区
+          sudo -E systemctl daemon-reload
+          sudo timedatectl set-timezone "$TZ"
+          
+          # 记录构建时间和内核版本
+          echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+          echo "KERNEL_VERSION=$(make kernelversion | head -n1 | tr -d '\n')" >> $GITHUB_ENV
+
+      - name: 初始化环境 (Ubuntu 24.04)
+        if: env.UBUNTU_VERSION == '24.04'
+        env:
+          TZ: Asia/Shanghai
+        run: |
+          # 使用官方脚本初始化编译环境
+          sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+          
+          # 安装额外依赖包
+          sudo -E apt -yqq install dos2unix
+          sudo -E apt -yqq install libfuse-dev
+          
+          # 清理不需要的软件包和缓存
+          sudo -E apt -yqq autoremove --purge
+          sudo -E apt -yqq autoclean
+          sudo -E apt -yqq clean
+          
+          # 重启系统守护进程并设置时区
+          sudo -E systemctl daemon-reload
+          sudo timedatectl set-timezone "$TZ"
+          
+          # 记录构建时间和内核版本
           echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
           echo "KERNEL_VERSION=$(make kernelversion | head -n1 | tr -d '\n')" >> $GITHUB_ENV
 
       - name: 克隆OpenWrt源码
         run: |
+          # 克隆指定分支的OpenWrt源码
           git clone --depth=1 ${{ matrix.branch.repo_url }} -b ${{ matrix.branch.repo_branch }} openwrt
           cd openwrt
           echo "REPO_SHORT=${{ matrix.branch.repo_short }}" >> $GITHUB_ENV
@@ -125,6 +173,7 @@ jobs:
 
       - name: 执行自定义脚本
         run: |
+          # 进入源码目录并执行自定义脚本
           cd openwrt
           chmod +x ../scripts/scripts.sh
           ../scripts/scripts.sh 2>&1 | tee build.log
@@ -132,7 +181,9 @@ jobs:
 
       - name: 合并配置文件
         run: |
+          # 进入源码目录并合并配置文件
           cd openwrt
+          
           # 合并配置文件 (芯片基础 + 分支基础 + 软件包配置)
           cat ../configs/${{ env.CHIP_ARCH }}_base.config > .config
           cat ../configs/${{ matrix.branch.repo_short }}_base.config >> .config
@@ -141,14 +192,15 @@ jobs:
           # 生成最终配置
           make defconfig
           
-          # 获取设备名称
+          # 从配置文件中提取设备名称
           DEVICE_NAME=$(grep CONFIG_TARGET_DEVICE_ .config | sed 's/.*DEVICE_\(.*\)=y/\1/' | head -n1)
           echo "DEVICE_NAME=${DEVICE_NAME}" >> $GITHUB_ENV
 
       - name: 分层编译
         run: |
+          # 进入源码目录并开始分层编译
           cd openwrt
-          set -euo pipefail
+          set -euo pipefail # 严格错误检查模式
           
           # L1: 工具链 (如果缓存未命中)
           if [ "${{ steps.cache-toolchain.outputs.cache-hit }}" != "true" ]; then
@@ -186,12 +238,14 @@ jobs:
 
       - name: 收集编译产物
         run: |
+          # 进入源码目录并收集编译产物
           cd openwrt
           mkdir -p ../artifacts
           
           # 重命名固件文件
           for file in bin/targets/*/*/*.bin; do
             if [ -f "$file" ]; then
+              # 提取固件类型 (factory或sysupgrade)
               FILETYPE=$(echo "$file" | grep -oE "(factory|sysupgrade)")
               NEW_NAME="${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-${FILETYPE}-${{ matrix.config }}.bin"
               cp "$file" "../artifacts/$NEW_NAME"
@@ -225,7 +279,7 @@ jobs:
   # 发布到Release
   release:
     needs: build
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-${{ env.UBUNTU_VERSION }}
     steps:
       - name: 下载所有编译产物
         uses: actions/download-artifact@v4
@@ -234,6 +288,7 @@ jobs:
 
       - name: 整理发布文件
         run: |
+          # 创建发布文件目录
           mkdir -p release-files
           
           # 整理配置文件
