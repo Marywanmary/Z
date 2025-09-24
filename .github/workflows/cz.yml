@@ -40,14 +40,10 @@ jobs:
       - name: 清理磁盘空间 (Ubuntu 24.04)
         if: ${{ github.event.inputs.ubuntu_version == '24.04' || (github.event.inputs.ubuntu_version == '' && '24.04' == '24.04') }}
         uses: sbwml/actions@free-disk
-        with:
-          tool-cache: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
+        # 移除不支持的参数以避免警告
 
-  # 编译主流程
-  build:
+  # 编译Ultra配置 (所有分支)
+  build-ultra:
     needs: cleanup
     strategy:
       matrix:
@@ -61,8 +57,7 @@ jobs:
           - repo_url: https://github.com/laipeng668/openwrt-6.x.git
             repo_branch: k6.12-nss
             repo_short: libwrt
-        config: [Ultra, Max, Pro] # 配置顺序确保最大缓存命中
-      max-parallel: 6 # 限制并行运行数量为6
+      max-parallel: 3 # 限制并行运行数量为3
     runs-on: ${{ format('ubuntu-{0}', github.event.inputs.ubuntu_version || '24.04') }}
     steps:
       - name: 检出仓库代码
@@ -196,7 +191,7 @@ jobs:
           # 合并配置文件 (芯片基础 + 分支基础 + 软件包配置)
           cat ../configs/${{ env.CHIP_ARCH }}_base.config > .config
           cat ../configs/${{ matrix.branch.repo_short }}_base.config >> .config
-          cat ../configs/${{ matrix.config }}.config >> .config
+          cat ../configs/Ultra.config >> .config
           
           # 生成最终配置
           make defconfig
@@ -256,22 +251,22 @@ jobs:
             if [ -f "$file" ]; then
               # 提取固件类型 (factory或sysupgrade)
               FILETYPE=$(echo "$file" | grep -oE "(factory|sysupgrade)")
-              NEW_NAME="${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-${FILETYPE}-${{ matrix.config }}.bin"
+              NEW_NAME="${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-${FILETYPE}-Ultra.bin"
               cp "$file" "../artifacts/$NEW_NAME"
             fi
           done
           
           # 收集配置文件
-          cp .config "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-${{ matrix.config }}.config"
-          cp .config.buildinfo "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-${{ matrix.config }}.config.buildinfo"
+          cp .config "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Ultra.config"
+          cp .config.buildinfo "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Ultra.config.buildinfo"
           
           # 收集清单文件
           if [ -f "bin/targets/*/*/manifest" ]; then
-            cp bin/targets/*/*/manifest "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-${{ matrix.config }}.manifest"
+            cp bin/targets/*/*/manifest "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Ultra.manifest"
           fi
           
           # 收集日志文件
-          cp build.log "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-${{ matrix.config }}.log"
+          cp build.log "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Ultra.log"
           
           # 收集IPK/APK文件
           mkdir -p ../artifacts/packages
@@ -281,13 +276,489 @@ jobs:
       - name: 上传编译产物
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.branch.repo_short }}-${{ matrix.config }}-artifacts
+          name: ${{ matrix.branch.repo_short }}-Ultra-artifacts
+          path: artifacts/
+          retention-days: 7
+
+  # 编译Max配置 (所有分支)
+  build-max:
+    needs: build-ultra
+    strategy:
+      matrix:
+        branch:
+          - repo_url: https://github.com/laipeng668/immortalwrt.git
+            repo_branch: master
+            repo_short: immwrt
+          - repo_url: https://github.com/laipeng668/openwrt.git
+            repo_branch: master
+            repo_short: openwrt
+          - repo_url: https://github.com/laipeng668/openwrt-6.x.git
+            repo_branch: k6.12-nss
+            repo_short: libwrt
+      max-parallel: 3 # 限制并行运行数量为3
+    runs-on: ${{ format('ubuntu-{0}', github.event.inputs.ubuntu_version || '24.04') }}
+    steps:
+      - name: 检出仓库代码
+        uses: actions/checkout@v4
+
+      - name: 初始化环境 (Ubuntu 22.04)
+        if: ${{ github.event.inputs.ubuntu_version == '22.04' || (github.event.inputs.ubuntu_version == '' && '24.04' == '22.04') }}
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          TZ: Asia/Shanghai
+        run: |
+          # 更新软件包列表并安装编译依赖
+          sudo -E apt-get -y update
+          sudo -E apt-get -y install $(curl -fsSL is.gd/depends_ubuntu_2204)
+          
+          # 重启系统守护进程并设置时区
+          sudo -E systemctl daemon-reload
+          sudo timedatectl set-timezone "$TZ"
+          
+          # 记录构建时间和内核版本
+          echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+          echo "KERNEL_VERSION=$(make kernelversion | head -n1 | tr -d '\n')" >> $GITHUB_ENV
+
+      - name: 初始化环境 (Ubuntu 24.04)
+        if: ${{ github.event.inputs.ubuntu_version == '24.04' || (github.event.inputs.ubuntu_version == '' && '24.04' == '24.04') }}
+        env:
+          TZ: Asia/Shanghai
+        run: |
+          # 使用官方脚本初始化编译环境
+          sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+          
+          # 安装额外依赖包
+          sudo -E apt -yqq install dos2unix
+          sudo -E apt -yqq install libfuse-dev
+          
+          # 清理不需要的软件包和缓存
+          sudo -E apt -yqq autoremove --purge
+          sudo -E apt -yqq autoclean
+          sudo -E apt -yqq clean
+          
+          # 重启系统守护进程并设置时区
+          sudo -E systemctl daemon-reload
+          sudo timedatectl set-timezone "$TZ"
+          
+          # 记录构建时间和内核版本
+          echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+          echo "KERNEL_VERSION=$(make kernelversion | head -n1 | tr -d '\n')" >> $GITHUB_ENV
+
+      - name: 克隆OpenWrt源码
+        run: |
+          # 克隆指定分支的OpenWrt源码
+          git clone --depth=1 ${{ matrix.branch.repo_url }} -b ${{ matrix.branch.repo_branch }} openwrt
+          cd openwrt
+          echo "REPO_SHORT=${{ matrix.branch.repo_short }}" >> $GITHUB_ENV
+
+      - name: 恢复L1缓存 - 工具链 (全分支共享)
+        id: cache-toolchain
+        uses: actions/cache@v4
+        with:
+          path: openwrt/staging_dir/toolchain-*
+          key: ${{ env.CHIP_ARCH }}-toolchain-${{ hashFiles('openwrt/toolchain/Makefile') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-toolchain-
+
+      - name: 恢复L2缓存 - 内核 (分支内共享)
+        id: cache-kernel
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/build_dir/target-*/linux-*/
+            openwrt/staging_dir/target-*/linux-*/
+          key: ${{ env.CHIP_ARCH }}-kernel-${{ matrix.branch.repo_short }}-${{ hashFiles('openwrt/target/linux/generic/config-*') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-kernel-${{ matrix.branch.repo_short }}-
+
+      - name: 恢复L3缓存 - 依赖包 (分支内共享)
+        id: cache-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/build_dir/target-*/root-*/
+            openwrt/staging_dir/target-*/root-*/
+          key: ${{ env.CHIP_ARCH }}-deps-${{ matrix.branch.repo_short }}-${{ hashFiles('openwrt/package/libs/**') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-deps-${{ matrix.branch.repo_short }}-
+
+      - name: 恢复L4缓存 - 基础系统 (分支内共享)
+        id: cache-base
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/build_dir/target-*/
+            openwrt/staging_dir/target-*/
+          key: ${{ env.CHIP_ARCH }}-base-${{ matrix.branch.repo_short }}-${{ hashFiles('openwrt/package/base-files/**') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-base-${{ matrix.branch.repo_short }}-
+
+      - name: 恢复L5缓存 - 软件包 (全分支共享)
+        id: cache-packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/build_dir/package-*/
+            openwrt/staging_dir/package-*/
+          key: ${{ env.CHIP_ARCH }}-packages-${{ hashFiles('openwrt/feeds.conf.default', 'openwrt/scripts/feeds') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-packages-
+
+      - name: 恢复DL缓存 (下载源码)
+        id: cache-dl
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: ${{ env.CHIP_ARCH }}-dl-${{ hashFiles('openwrt/feeds.conf.default') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-dl-
+
+      - name: 执行自定义脚本
+        run: |
+          # 进入源码目录并执行自定义脚本
+          cd openwrt
+          chmod +x ../scripts/scripts.sh
+          ../scripts/scripts.sh 2>&1 | tee build.log
+        continue-on-error: false
+
+      - name: 合并配置文件
+        run: |
+          # 进入源码目录并合并配置文件
+          cd openwrt
+          
+          # 合并配置文件 (芯片基础 + 分支基础 + 软件包配置)
+          cat ../configs/${{ env.CHIP_ARCH }}_base.config > .config
+          cat ../configs/${{ matrix.branch.repo_short }}_base.config >> .config
+          cat ../configs/Max.config >> .config
+          
+          # 生成最终配置
+          make defconfig
+          
+          # 从配置文件中提取设备名称
+          DEVICE_NAME=$(grep CONFIG_TARGET_DEVICE_ .config | sed 's/.*DEVICE_\(.*\)=y/\1/' | head -n1)
+          echo "DEVICE_NAME=${DEVICE_NAME}" >> $GITHUB_ENV
+
+      - name: 分层编译
+        run: |
+          # 进入源码目录并开始分层编译
+          cd openwrt
+          set -euo pipefail # 严格错误检查模式
+          
+          # L1: 工具链 (如果缓存未命中)
+          if [ "${{ steps.cache-toolchain.outputs.cache-hit }}" != "true" ]; then
+            echo "编译工具链..."
+            make toolchain/install -j$(nproc) || { echo "工具链编译失败"; exit 1; }
+          fi
+          
+          # L2: 内核 (如果缓存未命中)
+          if [ "${{ steps.cache-kernel.outputs.cache-hit }}" != "true" ]; then
+            echo "编译内核..."
+            make target/compile -j$(nproc) || { echo "内核编译失败"; exit 1; }
+          fi
+          
+          # L3: 依赖包 (如果缓存未命中)
+          if [ "${{ steps.cache-deps.outputs.cache-hit }}" != "true" ]; then
+            echo "编译依赖包..."
+            make package/compile -j$(nproc) || { echo "依赖包编译失败"; exit 1; }
+          fi
+          
+          # L4: 基础系统 (如果缓存未命中)
+          if [ "${{ steps.cache-base.outputs.cache-hit }}" != "true" ]; then
+            echo "编译基础系统..."
+            make target/install -j$(nproc) || { echo "基础系统编译失败"; exit 1; }
+          fi
+          
+          # L5: 软件包 (如果缓存未命中)
+          if [ "${{ steps.cache-packages.outputs.cache-hit }}" != "true" ]; then
+            echo "编译软件包..."
+            make package/compile -j$(nproc) || { echo "软件包编译失败"; exit 1; }
+          fi
+          
+          # 最终编译固件
+          echo "编译固件..."
+          make -j$(nproc) || { echo "固件编译失败"; exit 1; }
+
+      - name: 收集编译产物
+        run: |
+          # 进入源码目录并收集编译产物
+          cd openwrt
+          mkdir -p ../artifacts
+          
+          # 重命名固件文件
+          for file in bin/targets/*/*/*.bin; do
+            if [ -f "$file" ]; then
+              # 提取固件类型 (factory或sysupgrade)
+              FILETYPE=$(echo "$file" | grep -oE "(factory|sysupgrade)")
+              NEW_NAME="${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-${FILETYPE}-Max.bin"
+              cp "$file" "../artifacts/$NEW_NAME"
+            fi
+          done
+          
+          # 收集配置文件
+          cp .config "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Max.config"
+          cp .config.buildinfo "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Max.config.buildinfo"
+          
+          # 收集清单文件
+          if [ -f "bin/targets/*/*/manifest" ]; then
+            cp bin/targets/*/*/manifest "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Max.manifest"
+          fi
+          
+          # 收集日志文件
+          cp build.log "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Max.log"
+          
+          # 收集IPK/APK文件
+          mkdir -p ../artifacts/packages
+          find bin/packages -name "*.ipk" -exec cp {} ../artifacts/packages/ \;
+          find bin/targets -name "*.ipk" -exec cp {} ../artifacts/packages/ \;
+
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.branch.repo_short }}-Max-artifacts
+          path: artifacts/
+          retention-days: 7
+
+  # 编译Pro配置 (所有分支)
+  build-pro:
+    needs: build-max
+    strategy:
+      matrix:
+        branch:
+          - repo_url: https://github.com/laipeng668/immortalwrt.git
+            repo_branch: master
+            repo_short: immwrt
+          - repo_url: https://github.com/laipeng668/openwrt.git
+            repo_branch: master
+            repo_short: openwrt
+          - repo_url: https://github.com/laipeng668/openwrt-6.x.git
+            repo_branch: k6.12-nss
+            repo_short: libwrt
+      max-parallel: 3 # 限制并行运行数量为3
+    runs-on: ${{ format('ubuntu-{0}', github.event.inputs.ubuntu_version || '24.04') }}
+    steps:
+      - name: 检出仓库代码
+        uses: actions/checkout@v4
+
+      - name: 初始化环境 (Ubuntu 22.04)
+        if: ${{ github.event.inputs.ubuntu_version == '22.04' || (github.event.inputs.ubuntu_version == '' && '24.04' == '22.04') }}
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          TZ: Asia/Shanghai
+        run: |
+          # 更新软件包列表并安装编译依赖
+          sudo -E apt-get -y update
+          sudo -E apt-get -y install $(curl -fsSL is.gd/depends_ubuntu_2204)
+          
+          # 重启系统守护进程并设置时区
+          sudo -E systemctl daemon-reload
+          sudo timedatectl set-timezone "$TZ"
+          
+          # 记录构建时间和内核版本
+          echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+          echo "KERNEL_VERSION=$(make kernelversion | head -n1 | tr -d '\n')" >> $GITHUB_ENV
+
+      - name: 初始化环境 (Ubuntu 24.04)
+        if: ${{ github.event.inputs.ubuntu_version == '24.04' || (github.event.inputs.ubuntu_version == '' && '24.04' == '24.04') }}
+        env:
+          TZ: Asia/Shanghai
+        run: |
+          # 使用官方脚本初始化编译环境
+          sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+          
+          # 安装额外依赖包
+          sudo -E apt -yqq install dos2unix
+          sudo -E apt -yqq install libfuse-dev
+          
+          # 清理不需要的软件包和缓存
+          sudo -E apt -yqq autoremove --purge
+          sudo -E apt -yqq autoclean
+          sudo -E apt -yqq clean
+          
+          # 重启系统守护进程并设置时区
+          sudo -E systemctl daemon-reload
+          sudo timedatectl set-timezone "$TZ"
+          
+          # 记录构建时间和内核版本
+          echo "BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+          echo "KERNEL_VERSION=$(make kernelversion | head -n1 | tr -d '\n')" >> $GITHUB_ENV
+
+      - name: 克隆OpenWrt源码
+        run: |
+          # 克隆指定分支的OpenWrt源码
+          git clone --depth=1 ${{ matrix.branch.repo_url }} -b ${{ matrix.branch.repo_branch }} openwrt
+          cd openwrt
+          echo "REPO_SHORT=${{ matrix.branch.repo_short }}" >> $GITHUB_ENV
+
+      - name: 恢复L1缓存 - 工具链 (全分支共享)
+        id: cache-toolchain
+        uses: actions/cache@v4
+        with:
+          path: openwrt/staging_dir/toolchain-*
+          key: ${{ env.CHIP_ARCH }}-toolchain-${{ hashFiles('openwrt/toolchain/Makefile') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-toolchain-
+
+      - name: 恢复L2缓存 - 内核 (分支内共享)
+        id: cache-kernel
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/build_dir/target-*/linux-*/
+            openwrt/staging_dir/target-*/linux-*/
+          key: ${{ env.CHIP_ARCH }}-kernel-${{ matrix.branch.repo_short }}-${{ hashFiles('openwrt/target/linux/generic/config-*') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-kernel-${{ matrix.branch.repo_short }}-
+
+      - name: 恢复L3缓存 - 依赖包 (分支内共享)
+        id: cache-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/build_dir/target-*/root-*/
+            openwrt/staging_dir/target-*/root-*/
+          key: ${{ env.CHIP_ARCH }}-deps-${{ matrix.branch.repo_short }}-${{ hashFiles('openwrt/package/libs/**') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-deps-${{ matrix.branch.repo_short }}-
+
+      - name: 恢复L4缓存 - 基础系统 (分支内共享)
+        id: cache-base
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/build_dir/target-*/
+            openwrt/staging_dir/target-*/
+          key: ${{ env.CHIP_ARCH }}-base-${{ matrix.branch.repo_short }}-${{ hashFiles('openwrt/package/base-files/**') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-base-${{ matrix.branch.repo_short }}-
+
+      - name: 恢复L5缓存 - 软件包 (全分支共享)
+        id: cache-packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt/build_dir/package-*/
+            openwrt/staging_dir/package-*/
+          key: ${{ env.CHIP_ARCH }}-packages-${{ hashFiles('openwrt/feeds.conf.default', 'openwrt/scripts/feeds') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-packages-
+
+      - name: 恢复DL缓存 (下载源码)
+        id: cache-dl
+        uses: actions/cache@v4
+        with:
+          path: openwrt/dl
+          key: ${{ env.CHIP_ARCH }}-dl-${{ hashFiles('openwrt/feeds.conf.default') }}
+          restore-keys: |
+            ${{ env.CHIP_ARCH }}-dl-
+
+      - name: 执行自定义脚本
+        run: |
+          # 进入源码目录并执行自定义脚本
+          cd openwrt
+          chmod +x ../scripts/scripts.sh
+          ../scripts/scripts.sh 2>&1 | tee build.log
+        continue-on-error: false
+
+      - name: 合并配置文件
+        run: |
+          # 进入源码目录并合并配置文件
+          cd openwrt
+          
+          # 合并配置文件 (芯片基础 + 分支基础 + 软件包配置)
+          cat ../configs/${{ env.CHIP_ARCH }}_base.config > .config
+          cat ../configs/${{ matrix.branch.repo_short }}_base.config >> .config
+          cat ../configs/Pro.config >> .config
+          
+          # 生成最终配置
+          make defconfig
+          
+          # 从配置文件中提取设备名称
+          DEVICE_NAME=$(grep CONFIG_TARGET_DEVICE_ .config | sed 's/.*DEVICE_\(.*\)=y/\1/' | head -n1)
+          echo "DEVICE_NAME=${DEVICE_NAME}" >> $GITHUB_ENV
+
+      - name: 分层编译
+        run: |
+          # 进入源码目录并开始分层编译
+          cd openwrt
+          set -euo pipefail # 严格错误检查模式
+          
+          # L1: 工具链 (如果缓存未命中)
+          if [ "${{ steps.cache-toolchain.outputs.cache-hit }}" != "true" ]; then
+            echo "编译工具链..."
+            make toolchain/install -j$(nproc) || { echo "工具链编译失败"; exit 1; }
+          fi
+          
+          # L2: 内核 (如果缓存未命中)
+          if [ "${{ steps.cache-kernel.outputs.cache-hit }}" != "true" ]; then
+            echo "编译内核..."
+            make target/compile -j$(nproc) || { echo "内核编译失败"; exit 1; }
+          fi
+          
+          # L3: 依赖包 (如果缓存未命中)
+          if [ "${{ steps.cache-deps.outputs.cache-hit }}" != "true" ]; then
+            echo "编译依赖包..."
+            make package/compile -j$(nproc) || { echo "依赖包编译失败"; exit 1; }
+          fi
+          
+          # L4: 基础系统 (如果缓存未命中)
+          if [ "${{ steps.cache-base.outputs.cache-hit }}" != "true" ]; then
+            echo "编译基础系统..."
+            make target/install -j$(nproc) || { echo "基础系统编译失败"; exit 1; }
+          fi
+          
+          # L5: 软件包 (如果缓存未命中)
+          if [ "${{ steps.cache-packages.outputs.cache-hit }}" != "true" ]; then
+            echo "编译软件包..."
+            make package/compile -j$(nproc) || { echo "软件包编译失败"; exit 1; }
+          fi
+          
+          # 最终编译固件
+          echo "编译固件..."
+          make -j$(nproc) || { echo "固件编译失败"; exit 1; }
+
+      - name: 收集编译产物
+        run: |
+          # 进入源码目录并收集编译产物
+          cd openwrt
+          mkdir -p ../artifacts
+          
+          # 重命名固件文件
+          for file in bin/targets/*/*/*.bin; do
+            if [ -f "$file" ]; then
+              # 提取固件类型 (factory或sysupgrade)
+              FILETYPE=$(echo "$file" | grep -oE "(factory|sysupgrade)")
+              NEW_NAME="${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-${FILETYPE}-Pro.bin"
+              cp "$file" "../artifacts/$NEW_NAME"
+            fi
+          done
+          
+          # 收集配置文件
+          cp .config "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Pro.config"
+          cp .config.buildinfo "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Pro.config.buildinfo"
+          
+          # 收集清单文件
+          if [ -f "bin/targets/*/*/manifest" ]; then
+            cp bin/targets/*/*/manifest "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Pro.manifest"
+          fi
+          
+          # 收集日志文件
+          cp build.log "../artifacts/${{ matrix.branch.repo_short }}-${{ env.CHIP_ARCH }}-${{ env.DEVICE_NAME }}-Pro.log"
+          
+          # 收集IPK/APK文件
+          mkdir -p ../artifacts/packages
+          find bin/packages -name "*.ipk" -exec cp {} ../artifacts/packages/ \;
+          find bin/targets -name "*.ipk" -exec cp {} ../artifacts/packages/ \;
+
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.branch.repo_short }}-Pro-artifacts
           path: artifacts/
           retention-days: 7
 
   # 发布到Release
   release:
-    needs: build
+    needs: [build-ultra, build-max, build-pro]
     runs-on: ${{ format('ubuntu-{0}', github.event.inputs.ubuntu_version || '24.04') }}
     steps:
       - name: 下载所有编译产物
