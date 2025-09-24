@@ -26,13 +26,10 @@ env:
 jobs:
   # 清理磁盘空间
   cleanup:
-    strategy:
-      matrix:
-        ubuntu_version: ${{ github.event.inputs.ubuntu_version || '24.04' }}
-    runs-on: ubuntu-${{ matrix.ubuntu_version }}
+    runs-on: ${{ format('ubuntu-{0}', github.event.inputs.ubuntu_version || '24.04') }}
     steps:
       - name: 清理磁盘空间 (Ubuntu 22.04)
-        if: matrix.ubuntu_version == '22.04'
+        if: ${{ github.event.inputs.ubuntu_version == '22.04' || (github.event.inputs.ubuntu_version == '' && '24.04' == '22.04') }}
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true
@@ -41,7 +38,7 @@ jobs:
           swap-storage: true
       
       - name: 清理磁盘空间 (Ubuntu 24.04)
-        if: matrix.ubuntu_version == '24.04'
+        if: ${{ github.event.inputs.ubuntu_version == '24.04' || (github.event.inputs.ubuntu_version == '' && '24.04' == '24.04') }}
         uses: sbwml/actions@free-disk
         with:
           tool-cache: true
@@ -54,7 +51,6 @@ jobs:
     needs: cleanup
     strategy:
       matrix:
-        ubuntu_version: ${{ github.event.inputs.ubuntu_version || '24.04' }}
         branch:
           - repo_url: https://github.com/laipeng668/immortalwrt.git
             repo_branch: master
@@ -67,13 +63,13 @@ jobs:
             repo_short: libwrt
         config: [Ultra, Max, Pro] # 配置顺序确保最大缓存命中
       max-parallel: 6 # 限制并行运行数量为6
-    runs-on: ubuntu-${{ matrix.ubuntu_version }}
+    runs-on: ${{ format('ubuntu-{0}', github.event.inputs.ubuntu_version || '24.04') }}
     steps:
       - name: 检出仓库代码
         uses: actions/checkout@v4
 
       - name: 初始化环境 (Ubuntu 22.04)
-        if: matrix.ubuntu_version == '22.04'
+        if: ${{ github.event.inputs.ubuntu_version == '22.04' || (github.event.inputs.ubuntu_version == '' && '24.04' == '22.04') }}
         env:
           DEBIAN_FRONTEND: noninteractive
           TZ: Asia/Shanghai
@@ -91,7 +87,7 @@ jobs:
           echo "KERNEL_VERSION=$(make kernelversion | head -n1 | tr -d '\n')" >> $GITHUB_ENV
 
       - name: 初始化环境 (Ubuntu 24.04)
-        if: matrix.ubuntu_version == '24.04'
+        if: ${{ github.event.inputs.ubuntu_version == '24.04' || (github.event.inputs.ubuntu_version == '' && '24.04' == '24.04') }}
         env:
           TZ: Asia/Shanghai
         run: |
@@ -292,10 +288,7 @@ jobs:
   # 发布到Release
   release:
     needs: build
-    strategy:
-      matrix:
-        ubuntu_version: ${{ github.event.inputs.ubuntu_version || '24.04' }}
-    runs-on: ubuntu-${{ matrix.ubuntu_version }}
+    runs-on: ${{ format('ubuntu-{0}', github.event.inputs.ubuntu_version || '24.04') }}
     steps:
       - name: 下载所有编译产物
         uses: actions/download-artifact@v4
