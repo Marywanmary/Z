@@ -12,11 +12,6 @@ permissions:
 env:
   # 芯片变量（未来可扩展）
   CHIP: ipq60xx
-  # 仓库配置
-  REPOS: '["imm|${{ github.server_url }}/laipeng668/immortalwrt.git|master|immwrt", "open|${{ github.server_url }}/laipeng668/openwrt.git|master|openwrt", "lib|${{ github.server_url }}/laipeng668/openwrt-6.x.git|k6.12-nss|libwrt"]'
-  
-  # 配置类型（按优先级排序）
-  CONFIG_TYPES: '["Ultra", "Max", "Pro"]'
   
   # 默认信息
   DEFAULT_IP: 192.168.111.1
@@ -31,9 +26,13 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        # 解析仓库配置
-        repo: ${{ fromJson(env.REPOS) }}
-        config_type: ${{ fromJson(env.CONFIG_TYPES) }}
+        # 仓库配置（硬编码）
+        repo: 
+          - imm|${{ github.server_url }}/laipeng668/immortalwrt.git|master|immwrt
+          - open|${{ github.server_url }}/laipeng668/openwrt.git|master|openwrt
+          - lib|${{ github.server_url }}/laipeng668/openwrt-6.x.git|k6.12-nss|libwrt
+        # 配置类型（硬编码）
+        config_type: [Ultra, Max, Pro]
         # 未来可扩展其他芯片
         # chip: [ipq60xx, ipq80xx, mtk]
     steps:
