@@ -86,16 +86,24 @@ jobs:
             config: Pro
 
     # 过滤不需要的分支
-    if: ${{ github.event.inputs.branch == 'all' || 
-        (github.event.inputs.branch == 'immwrt' && matrix.branch == 'immwrt') || 
-        (github.event.inputs.branch == 'openwrt' && matrix.branch == 'openwrt') || 
-        (github.event.inputs.branch == 'libwrt' && matrix.branch == 'libwrt') }}
+    if: ${{ github.event.inputs.branch == 'all' || github.event.inputs.branch == 'immwrt' || github.event.inputs.branch == 'openwrt' || github.event.inputs.branch == 'libwrt' }}
     
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
         
+      - name: 检查分支匹配
+        id: check_branch
+        run: |
+          if [[ "${{ github.event.inputs.branch }}" == "all" || "${{ github.event.inputs.branch }}" == "${{ matrix.branch }}" ]]; then
+            echo "match=true" >> $GITHUB_OUTPUT
+          else
+            echo "match=false" >> $GITHUB_OUTPUT
+            echo "跳过 ${{ matrix.branch }}-${{ matrix.config }} 构建，因为不匹配所选分支 ${{ github.event.inputs.branch }}"
+          fi
+          
       - name: 初始化编译环境
+        if: steps.check_branch.outputs.match == 'true'
         run: |
           echo "============== 开始初始化编译环境 =============="
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
@@ -110,6 +118,7 @@ jobs:
 
       - name: 克隆源代码
         working-directory: /workdir
+        if: steps.check_branch.outputs.match == 'true'
         run: |
           echo "============== 开始克隆 ${{ matrix.branch }} 源代码 =============="
           git clone --depth 1 --single-branch --branch ${{ matrix.repo_branch }} ${{ matrix.repo_url }} openwrt
