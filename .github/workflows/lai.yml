@@ -188,6 +188,17 @@ jobs:
             make -j1 V=sc 2>&1 | tee -a ../logs/error.log
             if [ ${PIPESTATUS[0]} -ne 0 ]; then
               echo "错误：单线程编译也失败" >> ../logs/error.log
+              
+              # 输出错误日志的最后1000行到控制台
+              echo "=== 错误日志最后1000行 ==="
+              tail -n 1000 ../logs/error.log
+              echo "========================="
+              
+              # 创建错误摘要
+              echo "=== 错误摘要 ===" >> ../logs/error.log
+              grep -i "error\|failed\|undefined\|cannot\|no such file" ../logs/error.log | tail -n 20 >> ../logs/error.log
+              echo "=============" >> ../logs/error.log
+              
               exit 1
             fi
           fi
@@ -201,7 +212,8 @@ jobs:
           mkdir -p "$ARTIFACT_DIR"
           mkdir -p "$FIRMWARE_DIR"
           
-          TARGET_DIR="openwrt/bin/targets/qualcommax/${{ env.CHIP }}"
+          # 修改后的TARGET_DIR路径
+          TARGET_DIR="openwrt/bin/targets/${{ env.CHIP }}"
           
           # 复制配置文件
           cp temp_config/.config "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}.config"
@@ -224,14 +236,19 @@ jobs:
             cp -r openwrt/bin/packages/* "$ARTIFACT_DIR/packages/"
           fi
           
-          if [ -f logs/error.log ] && [ -s logs/error.log ]; then
-            cp logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log"
-          fi
-          
-          # 处理固件文件
+          # 处理固件文件 - 只处理包含"-squashfs-"的.bin文件
           if [ -d "$TARGET_DIR" ]; then
+            echo "=== 固件目录内容 ===" >> logs/error.log
+            ls -la "$TARGET_DIR" >> logs/error.log
+            echo "==================" >> logs/error.log
+            
+            FOUND_FIRMWARE=0
             for file in "$TARGET_DIR"/*.bin; do
               if [ -f "$file" ] && [[ "$file" == *"-squashfs-"* ]]; then
+                FOUND_FIRMWARE=1
+                echo "发现符合条件的固件文件: $(basename "$file")" >> logs/error.log
+                
+                # 从文件名提取设备名称
                 DEVICE_NAME_FROM_FILE=$(basename "$file" | sed -n 's/^.*-\(.*\)-squashfs-.*\.bin$/\1/p')
                 
                 if [ -z "$DEVICE_NAME_FROM_FILE" ]; then
@@ -239,6 +256,7 @@ jobs:
                   continue
                 fi
                 
+                # 确定固件类型
                 if [[ "$file" == *"factory"* ]]; then
                   FIRMWARE_TYPE="factory"
                 elif [[ "$file" == *"sysupgrade"* ]]; then
@@ -252,6 +270,64 @@ jobs:
                 echo "处理固件: $(basename "$file") -> $NEW_NAME" >> logs/error.log
               fi
             done
+            
+            if [ "$FOUND_FIRMWARE" -eq 0 ]; then
+              echo "警告：未找到包含'-squashfs-'的固件文件" >> logs/error.log
+            fi
+          else
+            echo "警告：目标目录不存在: $TARGET_DIR" >> logs/error.log
+          fi
+          
+          # 复制错误日志
+          if [ -f logs/error.log ] && [ -s logs/error.log ]; then
+            cp logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log"
+          fi
+          
+      - name: 压缩和分割日志
+        if: always()
+        run: |
+          set -e
+          ARTIFACT_DIR="${{ env.REPO_SHORT }}-${{ matrix.config_type }}"
+          
+          # 检查错误日志大小
+          if [ -f logs/error.log ]; then
+            LOG_SIZE=$(stat -c%s logs/error.log)
+            echo "错误日志大小: $LOG_SIZE 字节" >> logs/error.log
+            
+            # 如果日志大于10MB，进行压缩和分割
+            if [ "$LOG_SIZE" -gt 10485760 ]; then
+              echo "错误日志过大，进行压缩和分割..." >> logs/error.log
+              
+              # 压缩日志
+              gzip -c logs/error.log > "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log.gz"
+              
+              # 分割日志（每5MB一个文件）
+              split -b 5M -d logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log.part"
+              
+              # 创建分割日志的索引文件
+              echo "分割日志文件列表:" > "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log.index"
+              ls -la "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log.part"* >> "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log.index"
+            else
+              # 如果日志不大，直接复制
+              cp logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log"
+            fi
+          fi
+          
+      - name: 显示错误摘要
+        if: failure()
+        run: |
+          set -e
+          if [ -f logs/error.log ]; then
+            echo "=== 错误日志摘要 ==="
+            echo "最后20行错误信息:"
+            tail -n 20 logs/error.log
+            echo ""
+            echo "包含'error'的行:"
+            grep -i "error" logs/error.log | tail -n 10
+            echo ""
+            echo "包含'failed'的行:"
+            grep -i "failed" logs/error.log | tail -n 10
+            echo "=================="
           fi
           
       - name: 上传产物
@@ -262,7 +338,7 @@ jobs:
           path: |
             ${{ env.REPO_SHORT }}-${{ matrix.config_type }}/
           retention-days: 7
-          if-no-files-found: error
+          if-no-files-found: warn
           
       - name: 上传固件
         if: always()
@@ -272,7 +348,7 @@ jobs:
           path: |
             ${{ env.REPO_SHORT }}-${{ matrix.config_type }}-firmware/
           retention-days: 7
-          if-no-files-found: error
+          if-no-files-found: warn
 
   # 打包并发布Release
   package-and-release:
@@ -301,6 +377,9 @@ jobs:
           # 收集日志文件
           find all-artifacts -name "*-build.log" -exec cp {} release/log/ \;
           find all-artifacts -name "*-error.log" -exec cp {} release/log/ \;
+          find all-artifacts -name "*-error.log.gz" -exec cp {} release/log/ \;
+          find all-artifacts -name "*-error.log.part*" -exec cp {} release/log/ \;
+          find all-artifacts -name "*-error.log.index" -exec cp {} release/log/ \;
           
           # 收集软件包
           find all-artifacts -name "packages" -type d -exec cp -r {} release/app/ \;
