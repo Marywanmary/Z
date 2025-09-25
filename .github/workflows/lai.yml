@@ -66,8 +66,14 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
-          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
+          if [ ! -f logs/summary.log ]; then 
+            echo "=== IPQ60xx 固件编译摘要 ===" > logs/summary.log
+            echo "开始时间: $(date)" >> logs/summary.log
+          fi
+          if [ ! -f logs/technical.log ]; then 
+            echo "=== 详细技术日志 ===" > logs/technical.log
+            echo "开始时间: $(date)" >> logs/technical.log
+          fi
           
           echo "🔄 设置仓库环境变量..." | tee -a logs/summary.log
           
@@ -86,8 +92,14 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
-          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
+          if [ ! -f logs/summary.log ]; then 
+            echo "=== IPQ60xx 固件编译摘要 ===" > logs/summary.log
+            echo "开始时间: $(date)" >> logs/summary.log
+          fi
+          if [ ! -f logs/technical.log ]; then 
+            echo "=== 详细技术日志 ===" > logs/technical.log
+            echo "开始时间: $(date)" >> logs/technical.log
+          fi
           
           echo "🔄 清理工作目录..." | tee -a logs/summary.log
           
@@ -158,8 +170,14 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
-          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
+          if [ ! -f logs/summary.log ]; then 
+            echo "=== IPQ60xx 固件编译摘要 ===" > logs/summary.log
+            echo "开始时间: $(date)" >> logs/summary.log
+          fi
+          if [ ! -f logs/technical.log ]; then 
+            echo "=== 详细技术日志 ===" > logs/technical.log
+            echo "开始时间: $(date)" >> logs/technical.log
+          fi
           
           echo "🔄 合并配置文件..." | tee -a logs/summary.log
           
@@ -192,8 +210,14 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
-          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
+          if [ ! -f logs/summary.log ]; then 
+            echo "=== IPQ60xx 固件编译摘要 ===" > logs/summary.log
+            echo "开始时间: $(date)" >> logs/summary.log
+          fi
+          if [ ! -f logs/technical.log ]; then 
+            echo "=== 详细技术日志 ===" > logs/technical.log
+            echo "开始时间: $(date)" >> logs/technical.log
+          fi
           
           echo "🔄 克隆源码..." | tee -a logs/summary.log
           echo "仓库: ${{ env.REPO_URL }}" >> logs/technical.log
@@ -209,9 +233,9 @@ jobs:
             fi
           fi
           
-          # 克隆源码
+          # 克隆源码 - 不使用tee，直接重定向输出
           echo "开始克隆源码..." >> logs/technical.log
-          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt 2>&1 | tee -a ../logs/technical.log
+          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt >> logs/technical.log 2>&1
           
           # 验证克隆结果
           if [ ! -d "openwrt" ]; then
@@ -230,15 +254,21 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
-          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
+          if [ ! -f logs/summary.log ]; then 
+            echo "=== IPQ60xx 固件编译摘要 ===" > logs/summary.log
+            echo "开始时间: $(date)" >> logs/summary.log
+          fi
+          if [ ! -f logs/technical.log ]; then 
+            echo "=== 详细技术日志 ===" > logs/technical.log
+            echo "开始时间: $(date)" >> logs/technical.log
+          fi
           
           echo "🔄 更新feeds..." | tee -a logs/summary.log
           cd openwrt
           
           echo "=== Feeds更新开始 ===" >> ../logs/technical.log
-          ./scripts/feeds update -a 2>&1 | tee -a ../logs/technical.log
-          ./scripts/feeds install -a 2>&1 | tee -a ../logs/technical.log
+          ./scripts/feeds update -a >> ../logs/technical.log 2>&1
+          ./scripts/feeds install -a >> ../logs/technical.log 2>&1
           echo "=== Feeds更新完成 ===" >> ../logs/technical.log
           
           echo "✅ Feeds更新完成" | tee -a ../logs/summary.log
@@ -249,15 +279,21 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
-          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
+          if [ ! -f logs/summary.log ]; then 
+            echo "=== IPQ60xx 固件编译摘要 ===" > logs/summary.log
+            echo "开始时间: $(date)" >> logs/summary.log
+          fi
+          if [ ! -f logs/technical.log ]; then 
+            echo "=== 详细技术日志 ===" > logs/technical.log
+            echo "开始时间: $(date)" >> logs/technical.log
+          fi
           
           echo "🔄 安装编译依赖..." | tee -a logs/summary.log
           cd openwrt
           
           echo "=== 依赖安装开始 ===" >> ../logs/technical.log
-          sudo apt-get update 2>&1 | tee -a ../logs/technical.log
-          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget 2>&1 | tee -a ../logs/technical.log
+          sudo apt-get update >> ../logs/technical.log 2>&1
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget >> ../logs/technical.log 2>&1
           echo "=== 依赖安装完成 ===" >> ../logs/technical.log
           
           echo "✅ 编译依赖安装完成" | tee -a ../logs/summary.log
@@ -268,16 +304,25 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
-          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
-          if [ ! -f logs/progress.log ]; then touch logs/progress.log; fi
+          if [ ! -f logs/summary.log ]; then 
+            echo "=== IPQ60xx 固件编译摘要 ===" > logs/summary.log
+            echo "开始时间: $(date)" >> logs/summary.log
+          fi
+          if [ ! -f logs/technical.log ]; then 
+            echo "=== 详细技术日志 ===" > logs/technical.log
+            echo "开始时间: $(date)" >> logs/technical.log
+          fi
+          if [ ! -f logs/progress.log ]; then 
+            echo "=== 编译进度 ===" > logs/progress.log
+            echo "开始时间: $(date)" >> logs/progress.log
+          fi
           
           echo "🔄 开始编译固件..." | tee -a logs/summary.log
           cd openwrt
           
           # 应用配置
           cp ../temp_config/.config .config
-          make defconfig 2>&1 | tee -a ../logs/technical.log
+          make defconfig >> ../logs/technical.log 2>&1
           
           # 启用ccache
           export CCACHE_DIR=~/.ccache
@@ -290,27 +335,12 @@ jobs:
           
           # 编译并过滤输出
           echo "=== 编译开始 ===" >> ../logs/technical.log
-          make -j$(nproc) V=s 2>&1 | {
-            while IFS= read -r line; do
-              # 记录所有输出到技术日志
-              echo "$line" >> ../logs/technical.log
-              
-              # 提取关键信息到进度日志
-              if echo "$line" | grep -E "(CC|CXX|LD|AR|INSTALL|Building|Compiling|make\[.*\]:)"; then
-                echo "$(date '+%H:%M:%S') - $line" >> ../logs/progress.log
-              fi
-              
-              # 检查错误
-              if echo "$line" | grep -i "error\|failed\|undefined\|cannot"; then
-                echo "❌ 错误: $line" | tee -a ../logs/summary.log
-              fi
-            done
-          }
+          make -j$(nproc) V=s >> ../logs/technical.log 2>&1
           
           # 检查编译结果
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+          if [ $? -ne 0 ]; then
             echo "❌ 多线程编译失败，尝试单线程..." | tee -a ../logs/summary.log
-            make -j1 V=sc 2>&1 | tee -a ../logs/technical.log
+            make -j1 V=sc >> ../logs/technical.log 2>&1
             
             if [ $? -ne 0 ]; then
               echo "❌ 编译失败" | tee -a ../logs/summary.log
@@ -325,7 +355,7 @@ jobs:
             fi
           fi
           
-          echo "✅ 编译成功" | tee -a logs/summary.log
+          echo "✅ 编译成功" | tee -a ../logs/summary.log
           echo "" >> logs/summary.log
           
       - name: 上传进度日志
@@ -344,8 +374,14 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
-          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
+          if [ ! -f logs/summary.log ]; then 
+            echo "=== IPQ60xx 固件编译摘要 ===" > logs/summary.log
+            echo "开始时间: $(date)" >> logs/summary.log
+          fi
+          if [ ! -f logs/technical.log ]; then 
+            echo "=== 详细技术日志 ===" > logs/technical.log
+            echo "开始时间: $(date)" >> logs/technical.log
+          fi
           
           echo "🔄 收集构建产物..." | tee -a logs/summary.log
           
