@@ -211,10 +211,17 @@ jobs:
           make defconfig
           
           # 提取设备名称并修正格式问题
-          DEVICE_NAMES=$(grep -oP 'CONFIG_TARGET_DEVICE_\w+_\w+_DEVICE_\w+_\w+\S+(?=\=y)' .config | sed 's/CONFIG_TARGET_DEVICE_.*_DEVICE_//g')
+          # 使用更可靠的方式提取设备名称
+          DEVICE_NAMES=$(grep -oP 'CONFIG_TARGET_DEVICE_\w+_\w+_DEVICE_\w+_\w+\S+(?=\=y)' .config | sed 's/CONFIG_TARGET_DEVICE_.*_DEVICE_//g' | tr '\n' ' ' | xargs)
           if [ -n "$DEVICE_NAMES" ]; then
+            # 保留所有设备名称，用于环境变量和日志
             echo "DEVICE_NAMES=${DEVICE_NAMES}" >> $GITHUB_ENV
             echo "检测到设备: ${DEVICE_NAMES}"
+            
+            # 添加设备名称到配置文件，确保格式正确
+            for DEVICE in $DEVICE_NAMES; do
+              echo "CONFIG_TARGET_DEVICE_ipq60xx_DEVICE_${DEVICE}=y" >> .config
+            done
           else
             echo "未检测到设备，使用默认设备"
             echo "CONFIG_TARGET_DEVICE_ipq60xx_DEVICE_jdcloud_re-cs-02=y" >> .config
