@@ -86,19 +86,8 @@ jobs:
             config: Pro
 
     # 过滤不需要的分支
-    if: ${{ github.event.inputs.branch == 'all' || github.event.inputs.branch == matrix.branch }}
-    
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: 初始化编译环境
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          echo "============== 开始初始化编译环境 =============="
+    if: b.event.inputs.branch == 'all' || githuvenpnch == matrix.branch }}
+      me:        ==== 开始初始化编译环境 =============="
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/immortalwrt/immortalwrt/master/scripts/ubuntu-setup.sh | grep -v '#' | xargs)
