@@ -40,25 +40,35 @@ jobs:
       - name: 设置仓库环境变量
         run: |
           set -e
+          echo "🔄 设置仓库环境变量..."
           IFS='|' read -r REPO_KEY REPO_URL REPO_BRANCH REPO_SHORT <<< "${{ matrix.repo }}"
           echo "REPO_URL=${REPO_URL}" >> $GITHUB_ENV
           echo "REPO_BRANCH=${REPO_BRANCH}" >> $GITHUB_ENV
           echo "REPO_SHORT=${REPO_SHORT}" >> $GITHUB_ENV
           echo "CONFIG_TYPE=${{ matrix.config_type }}" >> $GITHUB_ENV
+          echo "✅ 仓库环境变量设置成功"
+          echo "   - 仓库: ${REPO_URL}"
+          echo "   - 分支: ${REPO_BRANCH}"
+          echo "   - 简称: ${REPO_SHORT}"
+          echo "   - 配置: ${{ matrix.config_type }}"
           
       - name: 初始化日志
         run: |
           set -e
+          echo "🔄 初始化日志..."
           mkdir -p logs
           echo "构建开始: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ matrix.config_type }}" > logs/error.log
           echo "构建时间: $(date)" >> logs/error.log
+          echo "✅ 日志初始化成功"
           
       - name: 清理工作目录
         run: |
           set -e
+          echo "🔄 清理工作目录..."
           echo "清理工作目录..." >> logs/error.log
           rm -rf openwrt temp_config
           echo "工作目录清理完成" >> logs/error.log
+          echo "✅ 工作目录清理成功"
           
       # 缓存策略
       - name: 缓存feeds目录
@@ -108,31 +118,49 @@ jobs:
           
       - name: 显示缓存状态
         run: |
+          echo "🔄 检查缓存状态..."
           echo "缓存状态:"
           echo "- feeds: ${{ steps.cache-feeds.outputs.cache-hit }}"
           echo "- dl: ${{ steps.cache-dl.outputs.cache-hit }}"
           echo "- ccache: ${{ steps.cache-ccache.outputs.cache-hit }}"
           echo "- toolchain: ${{ steps.cache-toolchain.outputs.cache-hit }}"
           echo "- staging: ${{ steps.cache-staging.outputs.cache-hit }}"
+          echo "✅ 缓存状态检查完成"
           
       - name: 合并配置文件
         run: |
           set -e
+          echo "🔄 合并配置文件..."
           mkdir -p temp_config
           cat configs/${{ env.CHIP }}_base.config > temp_config/.config
           cat configs/${{ env.REPO_SHORT }}_base.config >> temp_config/.config
           cat configs/${{ matrix.config_type }}.config >> temp_config/.config
           
           if [ ! -s temp_config/.config ]; then
+            echo "❌ 配置文件合并失败"
             echo "错误：配置文件合并失败" >> logs/error.log
             exit 1
           fi
           
+          # 提取设备信息用于显示
+          DEVICE_LINES=$(grep '^CONFIG_TARGET_DEVICE_.*=y$' temp_config/.config)
+          DEVICE_NAMES=""
+          for line in $DEVICE_LINES; do
+            DEVICE_NAME=$(echo "$line" | sed -n 's/^CONFIG_TARGET_DEVICE_[^_]*_[^_]*_DEVICE_\([^=]*\)=y/\1/p')
+            if [ -n "$DEVICE_NAME" ]; then
+              DEVICE_NAMES="$DEVICE_NAMES $DEVICE_NAME"
+            fi
+          done
+          
+          echo "✅ 配置文件合并成功，目标设备: $DEVICE_NAMES"
+          
       - name: 提取设备信息
         run: |
           set -e
+          echo "🔄 提取设备信息..."
           DEVICE_LINES=$(grep '^CONFIG_TARGET_DEVICE_.*=y$' temp_config/.config)
           if [ -z "$DEVICE_LINES" ]; then
+            echo "❌ 配置文件中未找到启用的设备"
             echo "错误：配置文件中未找到启用的设备" >> logs/error.log
             exit 1
           fi
@@ -147,23 +175,28 @@ jobs:
           
           DEVICE_COUNT=$(echo "$DEVICE_NAMES" | wc -w)
           if [ "$DEVICE_COUNT" -eq 0 ]; then
+            echo "❌ 无法从配置文件中提取设备名称"
             echo "错误：无法从配置文件中提取设备名称" >> logs/error.log
             exit 1
           fi
           
           echo "DEVICE_NAMES=${DEVICE_NAMES}" >> $GITHUB_ENV
           echo "设备数量: $DEVICE_COUNT" >> logs/error.log
+          echo "✅ 设备信息提取成功，找到 $DEVICE_COUNT 个设备: $DEVICE_NAMES"
           
       - name: 检查系统依赖
         run: |
           set -e
+          echo "🔄 检查系统依赖..."
           echo "检查系统依赖..." >> logs/error.log
           dpkg -l | grep -E "build-essential|clang|flex|bison|g\+\+|gawk|gcc-multilib|g\+\+-multilib|gettext|git|libncurses5-dev|libssl-dev|python3-distutils|python3-setuptools|rsync|unzip|zlib1g-dev|file|wget" >> logs/error.log
           which gcc g++ make git python3 >> logs/error.log
+          echo "✅ 系统依赖检查完成"
           
       - name: 克隆源码
         run: |
           set -e
+          echo "🔄 克隆源码..."
           echo "克隆源码..." >> logs/error.log
           
           # 强制删除可能存在的openwrt目录
@@ -175,6 +208,7 @@ jobs:
           
           # 确保目录已删除
           if [ -d "openwrt" ]; then
+            echo "❌ 无法删除openwrt目录"
             echo "错误：无法删除openwrt目录" >> logs/error.log
             exit 1
           fi
@@ -185,31 +219,56 @@ jobs:
           
           # 验证克隆是否成功
           if [ ! -d "openwrt" ]; then
+            echo "❌ 源码克隆失败"
             echo "错误：源码克隆失败" >> logs/error.log
             exit 1
           fi
           
           echo "源码克隆成功" >> logs/error.log
+          echo "✅ 源码克隆成功"
           
       - name: 安装依赖
         run: |
           set -e
+          echo "🔄 安装依赖..."
           cd openwrt
           echo "安装依赖..." >> ../logs/error.log
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget
+          echo "✅ 依赖安装成功"
           
       - name: 执行自定义脚本
         run: |
           set -e
+          echo "🔄 执行自定义脚本..."
           cd openwrt
           echo "执行自定义脚本..." >> ../logs/error.log
+          
+          # 检查脚本文件是否存在
+          if [ ! -f "../scripts/script.sh" ]; then
+            echo "❌ 脚本文件不存在: ../scripts/script.sh"
+            echo "错误：脚本文件不存在: ../scripts/script.sh" >> ../logs/error.log
+            exit 1
+          fi
+          
+          # 添加执行权限
           chmod +x ../scripts/script.sh
-          ../scripts/script.sh >> ../logs/error.log 2>&1
+          
+          # 执行脚本，同时输出到控制台和日志文件
+          echo "开始执行脚本..." >> ../logs/error.log
+          if ! ../scripts/script.sh 2>&1 | tee -a ../logs/error.log; then
+            echo "❌ 自定义脚本执行失败"
+            echo "错误：自定义脚本执行失败" >> ../logs/error.log
+            exit 1
+          fi
+          
+          echo "自定义脚本执行完成" >> ../logs/error.log
+          echo "✅ 自定义脚本执行成功"
           
       - name: 编译固件
         run: |
           set -e
+          echo "🔄 编译固件..."
           cd openwrt
           
           # 应用配置
@@ -259,6 +318,7 @@ jobs:
           
           # 尝试编译，捕获错误
           if ! make -j$(nproc) V=s 2>&1 | tee "$COMPILE_LOG"; then
+            echo "❌ 并行编译失败，尝试使用单线程重新编译..."
             echo "错误：并行编译失败，尝试使用单线程重新编译..." >> ../logs/error.log
             
             # 记录最后1000行编译输出
@@ -267,6 +327,7 @@ jobs:
             
             # 尝试单线程编译
             if ! make -j1 V=sc 2>&1 | tee "$COMPILE_LOG"; then
+              echo "❌ 单线程编译也失败"
               echo "错误：单线程编译也失败" >> ../logs/error.log
               
               # 记录最后2000行编译输出
@@ -292,11 +353,13 @@ jobs:
           
           rm -f "$COMPILE_LOG" "$PROGRESS_LOG"
           echo "编译完成" >> ../logs/error.log
+          echo "✅ 固件编译成功"
           
       - name: 生成编译摘要
         if: always()
         run: |
           set -e
+          echo "🔄 生成编译摘要..."
           echo "=== 编译摘要 ===" > logs/summary.log
           
           # 记录基本信息
@@ -311,9 +374,11 @@ jobs:
             echo "编译状态: 成功" >> logs/summary.log
             echo "生成的固件:" >> logs/summary.log
             ls -la "$TARGET_DIR"/*.bin | grep squashfs >> logs/summary.log
+            echo "✅ 编译摘要生成成功，编译状态: 成功"
           else
             echo "编译状态: 失败" >> logs/summary.log
             echo "请查看错误日志了解详情" >> logs/summary.log
+            echo "✅ 编译摘要生成成功，编译状态: 失败"
           fi
           
           echo "结束时间: $(date)" >> logs/summary.log
@@ -323,6 +388,7 @@ jobs:
         if: always()
         run: |
           set -e
+          echo "🔄 收集产物..."
           ARTIFACT_DIR="${{ env.REPO_SHORT }}-${{ matrix.config_type }}"
           FIRMWARE_DIR="${{ env.REPO_SHORT }}-${{ matrix.config_type }}-firmware"
           mkdir -p "$ARTIFACT_DIR"
@@ -361,12 +427,11 @@ jobs:
           fi
           
           # 处理固件文件 - 只处理包含"-squashfs-"的文件
+          FIRMWARE_COUNT=0
           if [ -d "$TARGET_DIR" ]; then
-            FOUND_FIRMWARE=0
-            
             for file in "$TARGET_DIR"/*.bin; do
               if [ -f "$file" ] && [[ "$file" == *"-squashfs-"* ]]; then
-                FOUND_FIRMWARE=1
+                FIRMWARE_COUNT=$((FIRMWARE_COUNT + 1))
                 
                 # 从文件名提取设备名称
                 DEVICE_NAME_FROM_FILE=$(basename "$file" | sed -n 's/^.*-\(.*\)-squashfs-.*\.bin$/\1/p')
@@ -390,15 +455,19 @@ jobs:
               fi
             done
             
-            if [ "$FOUND_FIRMWARE" -eq 0 ]; then
+            if [ "$FIRMWARE_COUNT" -eq 0 ]; then
               echo "警告: 没有找到任何符合条件的固件文件（包含-squashfs-的.bin文件）" >> logs/error.log
               # 创建一个说明文件，避免上传错误
               echo "没有找到符合条件的固件文件（包含-squashfs-的.bin文件）" > "$FIRMWARE_DIR/no-firmware-found.txt"
+              echo "✅ 产物收集完成，但未找到符合条件的固件文件"
+            else
+              echo "✅ 产物收集完成，找到 $FIRMWARE_COUNT 个固件文件"
             fi
           else
             echo "错误: 目标目录不存在: $TARGET_DIR" >> logs/error.log
             # 创建一个说明文件，避免上传错误
             echo "目标目录不存在: $TARGET_DIR" > "$FIRMWARE_DIR/target-directory-not-found.txt"
+            echo "✅ 产物收集完成，但目标目录不存在"
           fi
           
       - name: 上传编译摘要
@@ -458,6 +527,7 @@ jobs:
       - name: 准备发布目录
         run: |
           set -e
+          echo "🔄 准备发布目录..."
           mkdir -p release/{config,log,app,firmware,assets}
           
           # 收集配置文件
@@ -474,6 +544,7 @@ jobs:
           find all-artifacts -name "packages" -type d -exec cp -r {} release/app/ \;
           
           # 收集固件文件
+          FIRMWARE_COUNT=$(find all-artifacts -name "*.bin" | wc -l)
           find all-artifacts -name "*.bin" -exec cp {} release/firmware/ \;
           
           # 打包文件
@@ -578,6 +649,8 @@ jobs:
           - 软件包：${{ env.CHIP }}-app.tar.gz
           - 用户手册：README.md
           EOF
+          
+          echo "✅ 发布目录准备完成，找到 $FIRMWARE_COUNT 个固件文件"
           
       - name: 创建Release并上传文件
         uses: softprops/action-gh-release@v1
