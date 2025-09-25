@@ -66,8 +66,8 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          touch logs/summary.log
-          touch logs/technical.log
+          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
+          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
           
           echo "🔄 设置仓库环境变量..." | tee -a logs/summary.log
           
@@ -86,8 +86,8 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          touch logs/summary.log
-          touch logs/technical.log
+          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
+          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
           
           echo "🔄 清理工作目录..." | tee -a logs/summary.log
           
@@ -158,8 +158,8 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          touch logs/summary.log
-          touch logs/technical.log
+          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
+          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
           
           echo "🔄 合并配置文件..." | tee -a logs/summary.log
           
@@ -192,8 +192,8 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          touch logs/summary.log
-          touch logs/technical.log
+          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
+          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
           
           echo "🔄 克隆源码..." | tee -a logs/summary.log
           echo "仓库: ${{ env.REPO_URL }}" >> logs/technical.log
@@ -211,7 +211,7 @@ jobs:
           
           # 克隆源码
           echo "开始克隆源码..." >> logs/technical.log
-          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt 2>&1 | tee -a logs/technical.log
+          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt 2>&1 | tee -a ../logs/technical.log
           
           # 验证克隆结果
           if [ ! -d "openwrt" ]; then
@@ -221,8 +221,8 @@ jobs:
           
           cd openwrt
           COMMIT_HASH=$(git rev-parse HEAD)
-          echo "✅ 源码克隆成功，提交: ${COMMIT_HASH:0:7}" | tee -a logs/summary.log
-          echo "" >> logs/summary.log
+          echo "✅ 源码克隆成功，提交: ${COMMIT_HASH:0:7}" | tee -a ../logs/summary.log
+          echo "" >> ../logs/summary.log
           cd ..
           
       - name: 更新feeds
@@ -230,8 +230,8 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          touch logs/summary.log
-          touch logs/technical.log
+          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
+          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
           
           echo "🔄 更新feeds..." | tee -a logs/summary.log
           cd openwrt
@@ -249,8 +249,8 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          touch logs/summary.log
-          touch logs/technical.log
+          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
+          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
           
           echo "🔄 安装编译依赖..." | tee -a logs/summary.log
           cd openwrt
@@ -268,9 +268,9 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          touch logs/summary.log
-          touch logs/technical.log
-          touch logs/progress.log
+          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
+          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
+          if [ ! -f logs/progress.log ]; then touch logs/progress.log; fi
           
           echo "🔄 开始编译固件..." | tee -a logs/summary.log
           cd openwrt
@@ -325,7 +325,7 @@ jobs:
             fi
           fi
           
-          echo "✅ 编译成功" | tee -a ../logs/summary.log
+          echo "✅ 编译成功" | tee -a logs/summary.log
           echo "" >> logs/summary.log
           
       - name: 上传进度日志
@@ -344,8 +344,8 @@ jobs:
           set -e
           # 确保日志文件存在
           mkdir -p logs
-          touch logs/summary.log
-          touch logs/technical.log
+          if [ ! -f logs/summary.log ]; then touch logs/summary.log; fi
+          if [ ! -f logs/technical.log ]; then touch logs/technical.log; fi
           
           echo "🔄 收集构建产物..." | tee -a logs/summary.log
           
@@ -435,6 +435,19 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
         
+      - name: 设置发布信息
+        run: |
+          set -e
+          # 生成有效的标签名
+          RELEASE_DATE=$(date +%Y%m%d)
+          RELEASE_TAG="${RELEASE_DATE}-${{ env.CHIP }}"
+          
+          echo "RELEASE_DATE=$RELEASE_DATE" >> $GITHUB_ENV
+          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+          
+          echo "发布日期: $RELEASE_DATE"
+          echo "发布标签: $RELEASE_TAG"
+          
       - name: 下载所有产物
         uses: actions/download-artifact@v4
         with:
@@ -478,7 +491,7 @@ jobs:
           # IPQ60xx 固件发布
           
           ## 基本信息
-          - **发布日期**: $(date +%Y-%m-%d)
+          - **发布日期**: ${{ env.RELEASE_DATE }}
           - **内核版本**: $KERNEL_VERSION
           - **支持设备**: $DEVICE_LIST
           - **作者**: ${{ env.AUTHOR }}
@@ -524,8 +537,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: always()
         with:
-          tag_name: $(date +%Y%m%d)-${{ env.CHIP }}
-          name: ${{ env.CHIP }} Release $(date +%Y%m%d)
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.CHIP }} Release ${{ env.RELEASE_DATE }}
           body_path: release/README.md
           files: |
             release/assets/*
