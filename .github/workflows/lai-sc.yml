@@ -340,6 +340,9 @@ jobs:
               
               kill $PROGRESS_PID 2>/dev/null || true
               rm -f "$COMPILE_LOG" "$PROGRESS_LOG"
+              
+              # 设置编译失败标志
+              echo "COMPILE_FAILED=true" >> $GITHUB_ENV
               exit 1
             fi
           fi
@@ -384,6 +387,12 @@ jobs:
           echo "结束时间: $(date)" >> logs/summary.log
           echo "=== 编译摘要 ===" >> logs/summary.log
           
+          # 如果编译失败，退出工作流
+          if [ "${{ env.COMPILE_FAILED }}" == "true" ] || [ ! -d "$TARGET_DIR" ] || [ ! -f "$TARGET_DIR/"*.bin ]; then
+            echo "❌ 编译失败，终止工作流"
+            exit 1
+          fi
+
       - name: 收集产物
         if: always()
         run: |
@@ -397,6 +406,53 @@ jobs:
           # 修改后的TARGET_DIR，支持多种架构
           TARGET_DIR="openwrt/bin/targets/${{ env.CHIP }}"
           
+          # 检查目标目录是否存在
+          if [ ! -d "$TARGET_DIR" ]; then
+            echo "❌ 目标目录不存在: $TARGET_DIR"
+            echo "错误: 目标目录不存在: $TARGET_DIR" >> logs/error.log
+            # 创建一个说明文件，避免上传错误
+            echo "目标目录不存在: $TARGET_DIR" > "$FIRMWARE_DIR/target-directory-not-found.txt"
+            echo "✅ 产物收集完成，但目标目录不存在"
+            exit 1
+          fi
+          
+          # 检查是否有固件文件
+          FIRMWARE_COUNT=0
+          for file in "$TARGET_DIR"/*.bin; do
+            if [ -f "$file" ] && [[ "$file" == *"-squashfs-"* ]]; then
+              FIRMWARE_COUNT=$((FIRMWARE_COUNT + 1))
+              
+              # 从文件名提取设备名称
+              DEVICE_NAME_FROM_FILE=$(basename "$file" | sed -n 's/^.*-\(.*\)-squashfs-.*\.bin$/\1/p')
+              
+              if [ -z "$DEVICE_NAME_FROM_FILE" ]; then
+                echo "警告：无法从文件名中提取设备名称: $(basename "$file")" >> logs/error.log
+                continue
+              fi
+              
+              # 确定固件类型
+              if [[ "$file" == *"factory"* ]]; then
+                FIRMWARE_TYPE="factory"
+              elif [[ "$file" == *"sysupgrade"* ]]; then
+                FIRMWARE_TYPE="sysupgrade"
+              else
+                continue
+              fi
+              
+              NEW_NAME="${{ env.REPO_SHORT }}-${DEVICE_NAME_FROM_FILE}-${FIRMWARE_TYPE}-${{ matrix.config_type }}.bin"
+              cp "$file" "$FIRMWARE_DIR/$NEW_NAME"
+            fi
+          done
+          
+          if [ "$FIRMWARE_COUNT" -eq 0 ]; then
+            echo "❌ 没有找到任何符合条件的固件文件（包含-squashfs-的.bin文件）"
+            echo "警告: 没有找到任何符合条件的固件文件（包含-squashfs-的.bin文件）" >> logs/error.log
+            # 创建一个说明文件，避免上传错误
+            echo "没有找到符合条件的固件文件（包含-squashfs-的.bin文件）" > "$FIRMWARE_DIR/no-firmware-found.txt"
+            echo "✅ 产物收集完成，但未找到符合条件的固件文件"
+            exit 1
+          fi
+          
           # 复制配置文件
           cp temp_config/.config "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}.config"
           
@@ -405,7 +461,7 @@ jobs:
             cp openwrt/.config.buildinfo "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}.config.buildinfo"
           fi
           
-          if [ -d "$TARGET_DIR" ] && [ -f "$TARGET_DIR"/*.manifest ]; then
+          if [ -f "$TARGET_DIR"/*.manifest ]; then
             cp "$TARGET_DIR"/*.manifest "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}.manifest"
           fi
           
@@ -426,49 +482,7 @@ jobs:
             cp logs/summary.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-summary.log"
           fi
           
-          # 处理固件文件 - 只处理包含"-squashfs-"的文件
-          FIRMWARE_COUNT=0
-          if [ -d "$TARGET_DIR" ]; then
-            for file in "$TARGET_DIR"/*.bin; do
-              if [ -f "$file" ] && [[ "$file" == *"-squashfs-"* ]]; then
-                FIRMWARE_COUNT=$((FIRMWARE_COUNT + 1))
-                
-                # 从文件名提取设备名称
-                DEVICE_NAME_FROM_FILE=$(basename "$file" | sed -n 's/^.*-\(.*\)-squashfs-.*\.bin$/\1/p')
-                
-                if [ -z "$DEVICE_NAME_FROM_FILE" ]; then
-                  echo "警告：无法从文件名中提取设备名称: $(basename "$file")" >> logs/error.log
-                  continue
-                fi
-                
-                # 确定固件类型
-                if [[ "$file" == *"factory"* ]]; then
-                  FIRMWARE_TYPE="factory"
-                elif [[ "$file" == *"sysupgrade"* ]]; then
-                  FIRMWARE_TYPE="sysupgrade"
-                else
-                  continue
-                fi
-                
-                NEW_NAME="${{ env.REPO_SHORT }}-${DEVICE_NAME_FROM_FILE}-${FIRMWARE_TYPE}-${{ matrix.config_type }}.bin"
-                cp "$file" "$FIRMWARE_DIR/$NEW_NAME"
-              fi
-            done
-            
-            if [ "$FIRMWARE_COUNT" -eq 0 ]; then
-              echo "警告: 没有找到任何符合条件的固件文件（包含-squashfs-的.bin文件）" >> logs/error.log
-              # 创建一个说明文件，避免上传错误
-              echo "没有找到符合条件的固件文件（包含-squashfs-的.bin文件）" > "$FIRMWARE_DIR/no-firmware-found.txt"
-              echo "✅ 产物收集完成，但未找到符合条件的固件文件"
-            else
-              echo "✅ 产物收集完成，找到 $FIRMWARE_COUNT 个固件文件"
-            fi
-          else
-            echo "错误: 目标目录不存在: $TARGET_DIR" >> logs/error.log
-            # 创建一个说明文件，避免上传错误
-            echo "目标目录不存在: $TARGET_DIR" > "$FIRMWARE_DIR/target-directory-not-found.txt"
-            echo "✅ 产物收集完成，但目标目录不存在"
-          fi
+          echo "✅ 产物收集完成，找到 $FIRMWARE_COUNT 个固件文件"
           
       - name: 上传编译摘要
         if: always()
@@ -481,7 +495,7 @@ jobs:
           if-no-files-found: warn
           
       - name: 上传错误日志
-        if: failure()
+        if: failure() || env.COMPILE_FAILED == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: error-logs-${{ env.REPO_SHORT }}-${{ matrix.config_type }}
@@ -491,7 +505,7 @@ jobs:
           if-no-files-found: warn
           
       - name: 上传产物
-        if: always()
+        if: success() && env.COMPILE_FAILED != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.REPO_SHORT }}-${{ matrix.config_type }}
@@ -501,7 +515,7 @@ jobs:
           if-no-files-found: warn
           
       - name: 上传固件
-        if: always()
+        if: success() && env.COMPILE_FAILED != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.REPO_SHORT }}-${{ matrix.config_type }}-firmware
@@ -514,7 +528,7 @@ jobs:
   package-and-release:
     needs: build
     runs-on: ubuntu-22.04
-    if: always()
+    if: success() && !contains(needs.build.result, 'failure')
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -654,7 +668,6 @@ jobs:
           
       - name: 创建Release并上传文件
         uses: softprops/action-gh-release@v1
-        if: always()
         with:
           tag_name: ${{ env.RELEASE_DATE }}-${{ env.CHIP }}
           name: ${{ env.CHIP }} Release ${{ env.RELEASE_DATE }}
