@@ -56,7 +56,9 @@ jobs:
       - name: 清理工作目录
         run: |
           set -e
+          echo "清理工作目录..." >> logs/error.log
           rm -rf openwrt temp_config
+          echo "工作目录清理完成" >> logs/error.log
           
       # 缓存策略
       - name: 缓存feeds目录
@@ -163,7 +165,31 @@ jobs:
         run: |
           set -e
           echo "克隆源码..." >> logs/error.log
+          
+          # 强制删除可能存在的openwrt目录
+          if [ -d "openwrt" ]; then
+            echo "发现已存在的openwrt目录，正在删除..." >> logs/error.log
+            rm -rf openwrt
+            echo "openwrt目录已删除" >> logs/error.log
+          fi
+          
+          # 确保目录已删除
+          if [ -d "openwrt" ]; then
+            echo "错误：无法删除openwrt目录" >> logs/error.log
+            exit 1
+          fi
+          
+          # 克隆源码
+          echo "开始克隆仓库: ${{ env.REPO_URL }}" >> logs/error.log
           git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt
+          
+          # 验证克隆是否成功
+          if [ ! -d "openwrt" ]; then
+            echo "错误：源码克隆失败" >> logs/error.log
+            exit 1
+          fi
+          
+          echo "源码克隆成功" >> logs/error.log
           
       - name: 安装依赖
         run: |
