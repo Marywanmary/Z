@@ -84,7 +84,11 @@ jobs:
         run: |
           set -e
           echo "正在清理工作目录..." >> logs/user-friendly.log
+          
+          # 强制清理所有相关目录
           rm -rf openwrt temp_config
+          mkdir -p logs
+          
           echo "工作目录清理完成" >> logs/user-friendly.log
           
       # 优化缓存策略 - 更具体的缓存键
@@ -281,12 +285,55 @@ jobs:
           echo "提取到的设备名称: $DEVICE_NAMES" >> logs/user-friendly.log
           echo "设备数量: $DEVICE_COUNT" >> logs/user-friendly.log
           
+      - name: 检查目录状态
+        run: |
+          set -e
+          echo "=== 检查目录状态 ===" >> logs/user-friendly.log
+          
+          if [ -d "openwrt" ]; then
+            echo "openwrt 目录存在，大小: $(du -sh openwrt | cut -f1)" >> logs/user-friendly.log
+            echo "openwrt 目录内容:" >> logs/user-friendly.log
+            ls -la openwrt | head -10 >> logs/user-friendly.log
+          else
+            echo "openwrt 目录不存在" >> logs/user-friendly.log
+          fi
+          
+          if [ -d "temp_config" ]; then
+            echo "temp_config 目录存在，大小: $(du -sh temp_config | cut -f1)" >> logs/user-friendly.log
+          else
+            echo "temp_config 目录不存在" >> logs/user-friendly.log
+          fi
+          
+          echo "目录状态检查完成" >> logs/user-friendly.log
+          
       - name: 克隆源码
         run: |
           set -e
+          echo "正在准备克隆源码..." >> logs/user-friendly.log
+          
+          # 使用临时目录克隆，然后重命名
+          TEMP_DIR="openwrt_temp_$(date +%s)"
+          
           echo "正在克隆源码仓库: ${{ env.REPO_URL }} (分支: ${{ env.REPO_BRANCH }})" >> logs/user-friendly.log
-          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt
+          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} "$TEMP_DIR"
+          
+          # 如果目标目录存在，先删除
+          if [ -d "openwrt" ]; then
+            echo "删除现有的 openwrt 目录..." >> logs/user-friendly.log
+            rm -rf openwrt
+          fi
+          
+          # 重命名临时目录
+          mv "$TEMP_DIR" openwrt
           echo "源码克隆完成" >> logs/user-friendly.log
+          
+          # 验证克隆结果
+          if [ ! -d "openwrt" ] || [ ! -f "openwrt/Makefile" ]; then
+            echo "错误：源码克隆失败，目录不存在或不完整" >> logs/user-friendly.log
+            exit 1
+          fi
+          
+          echo "源码验证成功" >> logs/user-friendly.log
           
       - name: 更新feeds
         run: |
@@ -431,11 +478,11 @@ jobs:
             cp -r openwrt/bin/packages/* "$ARTIFACT_DIR/packages/"
           fi
           
-          if [ -f logs/error.log" ] && [ -s logs/error.log" ]; then
+          if [ -f "logs/error.log" ] && [ -s "logs/error.log" ]; then
             cp logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log"
           fi
           
-          if [ -f logs/user-friendly.log" ] && [ -s logs/user-friendly.log" ]; then
+          if [ -f "logs/user-friendly.log" ] && [ -s "logs/user-friendly.log" ]; then
             cp logs/user-friendly.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-user-friendly.log"
           fi
           
