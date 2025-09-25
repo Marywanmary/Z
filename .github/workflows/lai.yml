@@ -37,49 +37,49 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
         
-      - name: 初始化错误日志
+      - name: 初始化日志系统
         run: |
           set -e
-          echo "=== 步骤：初始化错误日志 ==="
           mkdir -p logs
-          echo "=== 构建开始: $REPO_SHORT-$CHIP-$CONFIG_TYPE ===" > logs/error.log
-          echo "构建时间: $(date)" >> logs/error.log
-          echo "=== 步骤完成：初始化错误日志 ===" >> logs/error.log
-        env:
-          REPO_SHORT: ${{ matrix.repo }}
-          CHIP: ${{ env.CHIP }}
-          CONFIG_TYPE: ${{ matrix.config_type }}
+          
+          # 创建用户友好摘要日志
+          echo "=== IPQ60xx 固件编译摘要 ===" > logs/summary.log
+          echo "开始时间: $(date)" >> logs/summary.log
+          echo "配置类型: ${{ matrix.config_type }}" >> logs/summary.log
+          echo "仓库: ${{ matrix.repo }}" >> logs/summary.log
+          echo "" >> logs/summary.log
+          
+          # 创建详细技术日志
+          echo "=== 详细技术日志 ===" > logs/technical.log
+          echo "开始时间: $(date)" >> logs/technical.log
+          
+          # 创建编译进度日志
+          echo "=== 编译进度 ===" > logs/progress.log
           
       - name: 设置仓库环境变量
         run: |
           set -e
-          # 确保日志文件存在
-          mkdir -p logs
-          touch logs/error.log
+          echo "🔄 设置仓库环境变量..." | tee -a logs/summary.log
           
-          echo "=== 步骤：设置仓库环境变量 ===" >> logs/error.log
           IFS='|' read -r REPO_KEY REPO_URL REPO_BRANCH REPO_SHORT <<< "${{ matrix.repo }}"
           echo "REPO_URL=${REPO_URL}" >> $GITHUB_ENV
           echo "REPO_BRANCH=${REPO_BRANCH}" >> $GITHUB_ENV
           echo "REPO_SHORT=${REPO_SHORT}" >> $GITHUB_ENV
           echo "CONFIG_TYPE=${{ matrix.config_type }}" >> $GITHUB_ENV
-          echo "仓库信息: REPO_SHORT=${REPO_SHORT}, REPO_BRANCH=${REPO_BRANCH}, CONFIG_TYPE=${{ matrix.config_type }}" >> logs/error.log
-          echo "=== 步骤完成：设置仓库环境变量 ===" >> logs/error.log
+          
+          echo "✅ 仓库信息: $REPO_SHORT ($REPO_BRANCH)" | tee -a logs/summary.log
+          echo "" >> logs/summary.log
           
       - name: 清理工作目录
         run: |
           set -e
-          # 确保日志文件存在
-          mkdir -p logs
-          touch logs/error.log
-          
-          echo "=== 步骤：清理工作目录 ===" >> logs/error.log
+          echo "🔄 清理工作目录..." | tee -a logs/summary.log
           rm -rf openwrt temp_config
-          echo "已清理 openwrt 和 temp_config 目录" >> logs/error.log
-          echo "=== 步骤完成：清理工作目录 ===" >> logs/error.log
+          echo "✅ 工作目录已清理" | tee -a logs/summary.log
+          echo "" >> logs/summary.log
           
-      # 优化缓存策略 - 仅依赖基础配置
-      - name: 缓存feeds目录（全矩阵通用）
+      # 缓存步骤
+      - name: 缓存feeds目录
         uses: actions/cache@v4
         with:
           path: openwrt/feeds
@@ -87,7 +87,7 @@ jobs:
           restore-keys: |
             feeds-
           
-      - name: 缓存下载目录（全矩阵通用）
+      - name: 缓存下载目录
         uses: actions/cache@v4
         with:
           path: openwrt/dl
@@ -95,7 +95,7 @@ jobs:
           restore-keys: |
             dl-
             
-      - name: 缓存ccache（全矩阵通用）
+      - name: 缓存ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
@@ -103,7 +103,7 @@ jobs:
           restore-keys: |
             ccache-
             
-      - name: 缓存工具链目录（全矩阵通用）
+      - name: 缓存工具链目录
         uses: actions/cache@v4
         with:
           path: openwrt/build_dir/toolchain-*
@@ -111,7 +111,7 @@ jobs:
           restore-keys: |
             toolchain-
             
-      - name: 缓存staging目录（全矩阵通用）
+      - name: 缓存staging目录
         uses: actions/cache@v4
         with:
           path: openwrt/staging_dir
@@ -122,60 +122,20 @@ jobs:
       - name: 合并配置文件
         run: |
           set -e
-          # 确保日志文件存在
-          mkdir -p logs
-          touch logs/error.log
-          
-          echo "=== 步骤：合并配置文件 ===" >> logs/error.log
-          echo "开始合并配置文件..." >> logs/error.log
+          echo "🔄 合并配置文件..." | tee -a logs/summary.log
           
           mkdir -p temp_config
-          echo "1. 合并基础配置: configs/${{ env.CHIP }}_base.config" >> logs/error.log
           cat configs/${{ env.CHIP }}_base.config > temp_config/.config
-          
-          echo "2. 合并仓库配置: configs/${{ env.REPO_SHORT }}_base.config" >> logs/error.log
           cat configs/${{ env.REPO_SHORT }}_base.config >> temp_config/.config
-          
-          echo "3. 合并类型配置: configs/${{ matrix.config_type }}.config" >> logs/error.log
           cat configs/${{ matrix.config_type }}.config >> temp_config/.config
           
-          # 验证配置文件合并成功
           if [ ! -s temp_config/.config ]; then
-            echo "错误：配置文件合并失败 - 生成的配置文件为空" >> logs/error.log
+            echo "❌ 错误：配置文件合并失败" | tee -a logs/summary.log
             exit 1
           fi
           
-          CONFIG_SIZE=$(stat -c%s temp_config/.config)
-          echo "配置文件合并成功，大小: $CONFIG_SIZE 字节" >> logs/error.log
-          
-          # 调试信息
-          echo "=== 配置文件内容片段 ===" >> logs/error.log
-          grep -E "CONFIG_TARGET_DEVICE_" temp_config/.config >> logs/error.log
-          echo "========================" >> logs/error.log
-          
-          echo "=== 步骤完成：合并配置文件 ===" >> logs/error.log
-          
-      - name: 提取设备信息
-        run: |
-          set -e
-          # 确保日志文件存在
-          mkdir -p logs
-          touch logs/error.log
-          
-          echo "=== 步骤：提取设备信息 ===" >> logs/error.log
-          echo "开始从配置文件中提取设备信息..." >> logs/error.log
-          
+          # 提取设备信息
           DEVICE_LINES=$(grep '^CONFIG_TARGET_DEVICE_.*=y$' temp_config/.config)
-          if [ -z "$DEVICE_LINES" ]; then
-            echo "错误：配置文件中未找到启用的设备" >> logs/error.log
-            echo "配置文件内容:" >> logs/error.log
-            cat temp_config/.config >> logs/error.log
-            exit 1
-          fi
-          
-          echo "找到设备配置行:" >> logs/error.log
-          echo "$DEVICE_LINES" >> logs/error.log
-          
           DEVICE_NAMES=""
           for line in $DEVICE_LINES; do
             DEVICE_NAME=$(echo "$line" | sed -n 's/^CONFIG_TARGET_DEVICE_[^_]*_[^_]*_DEVICE_\([^=]*\)=y/\1/p')
@@ -184,109 +144,67 @@ jobs:
             fi
           done
           
-          DEVICE_COUNT=$(echo "$DEVICE_NAMES" | wc -w)
-          if [ "$DEVICE_COUNT" -eq 0 ]; then
-            echo "错误：无法从配置文件中提取设备名称" >> logs/error.log
-            exit 1
-          fi
-          
           echo "DEVICE_NAMES=${DEVICE_NAMES}" >> $GITHUB_ENV
-          echo "提取到的设备名称: $DEVICE_NAMES" >> logs/error.log
-          echo "设备数量: $DEVICE_COUNT" >> logs/error.log
-          echo "=== 步骤完成：提取设备信息 ===" >> logs/error.log
+          echo "✅ 配置文件合并成功，目标设备: $DEVICE_NAMES" | tee -a logs/summary.log
+          echo "" >> logs/summary.log
           
       - name: 克隆源码
         run: |
           set -e
-          # 确保日志文件存在
-          mkdir -p logs
-          touch logs/error.log
+          echo "🔄 克隆源码..." | tee -a logs/summary.log
+          echo "仓库: ${{ env.REPO_URL }}" >> logs/technical.log
+          echo "分支: ${{ env.REPO_BRANCH }}" >> logs/technical.log
           
-          echo "=== 步骤：克隆源码 ===" >> logs/error.log
-          echo "开始克隆源码..." >> logs/error.log
-          echo "仓库URL: ${{ env.REPO_URL }}" >> logs/error.log
-          echo "分支: ${{ env.REPO_BRANCH }}" >> logs/error.log
-          
-          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt
+          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt 2>&1 | tee -a logs/technical.log
           
           if [ ! -d "openwrt" ]; then
-            echo "错误：克隆源码失败 - openwrt目录不存在" >> logs/error.log
+            echo "❌ 错误：克隆源码失败" | tee -a logs/summary.log
             exit 1
           fi
           
           cd openwrt
           COMMIT_HASH=$(git rev-parse HEAD)
-          echo "克隆成功，提交哈希: $COMMIT_HASH" >> ../logs/error.log
+          echo "✅ 源码克隆成功，提交: ${COMMIT_HASH:0:7}" | tee -a logs/summary.log
+          echo "" >> logs/summary.log
           cd ..
-          
-          echo "=== 步骤完成：克隆源码 ===" >> logs/error.log
           
       - name: 更新feeds
         run: |
           set -e
-          # 确保日志文件存在
-          mkdir -p logs
-          touch logs/error.log
-          
-          echo "=== 步骤：更新feeds ===" >> logs/error.log
-          echo "开始更新feeds..." >> logs/error.log
+          echo "🔄 更新feeds..." | tee -a logs/summary.log
           cd openwrt
           
-          echo "执行: ./scripts/feeds update -a" >> ../logs/error.log
-          ./scripts/feeds update -a 2>&1 | tee -a ../logs/error.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "错误：feeds更新失败" >> ../logs/error.log
-            exit 1
-          fi
+          echo "=== Feeds更新开始 ===" >> ../logs/technical.log
+          ./scripts/feeds update -a 2>&1 | tee -a ../logs/technical.log
+          ./scripts/feeds install -a 2>&1 | tee -a ../logs/technical.log
+          echo "=== Feeds更新完成 ===" >> ../logs/technical.log
           
-          echo "执行: ./scripts/feeds install -a" >> ../logs/error.log
-          ./scripts/feeds install -a 2>&1 | tee -a ../logs/error.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "错误：feeds安装失败" >> ../logs/error.log
-            exit 1
-          fi
-          
-          echo "=== 步骤完成：更新feeds ===" >> ../logs/error.log
+          echo "✅ Feeds更新完成" | tee -a ../logs/summary.log
+          echo "" >> logs/summary.log
           
       - name: 安装依赖
         run: |
           set -e
-          # 确保日志文件存在
-          mkdir -p logs
-          touch logs/error.log
-          
-          echo "=== 步骤：安装依赖 ===" >> logs/error.log
-          echo "开始安装编译依赖..." >> logs/error.log
+          echo "🔄 安装编译依赖..." | tee -a logs/summary.log
           cd openwrt
           
-          echo "更新软件包列表..." >> ../logs/error.log
-          sudo apt-get update 2>&1 | tee -a ../logs/error.log
+          echo "=== 依赖安装开始 ===" >> ../logs/technical.log
+          sudo apt-get update 2>&1 | tee -a ../logs/technical.log
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget 2>&1 | tee -a ../logs/technical.log
+          echo "=== 依赖安装完成 ===" >> ../logs/technical.log
           
-          echo "安装编译依赖..." >> ../logs/error.log
-          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget 2>&1 | tee -a ../logs/error.log
-          
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "错误：依赖安装失败" >> ../logs/error.log
-            exit 1
-          fi
-          
-          echo "=== 步骤完成：安装依赖 ===" >> ../logs/error.log
+          echo "✅ 编译依赖安装完成" | tee -a ../logs/summary.log
+          echo "" >> logs/summary.log
           
       - name: 编译固件
         run: |
           set -e
-          # 确保日志文件存在
-          mkdir -p logs
-          touch logs/error.log
-          
-          echo "=== 步骤：编译固件 ===" >> logs/error.log
-          echo "开始编译固件..." >> logs/error.log
+          echo "🔄 开始编译固件..." | tee -a logs/summary.log
           cd openwrt
           
           # 应用配置
-          echo "应用配置文件..." >> ../logs/error.log
           cp ../temp_config/.config .config
-          make defconfig 2>&1 | tee -a ../logs/error.log
+          make defconfig 2>&1 | tee -a ../logs/technical.log
           
           # 启用ccache
           export CCACHE_DIR=~/.ccache
@@ -294,195 +212,121 @@ jobs:
           export CCACHE_COMPRESS=1
           
           # 检查磁盘空间
-          echo "检查磁盘空间..." >> ../logs/error.log
-          df -h >> ../logs/error.log
+          echo "磁盘空间:" >> ../logs/technical.log
+          df -h >> ../logs/technical.log
           
-          # 编译
-          echo "开始编译 (多线程)..." >> ../logs/error.log
-          make -j$(nproc) V=s 2>&1 | tee -a ../logs/error.log
+          # 编译并过滤输出
+          echo "=== 编译开始 ===" >> ../logs/technical.log
+          make -j$(nproc) V=s 2>&1 | {
+            while IFS= read -r line; do
+              # 记录所有输出到技术日志
+              echo "$line" >> ../logs/technical.log
+              
+              # 提取关键信息到进度日志
+              if echo "$line" | grep -E "(CC|CXX|LD|AR|INSTALL|Building|Compiling|make\[.*\]:)"; then
+                echo "$(date '+%H:%M:%S') - $line" >> ../logs/progress.log
+              fi
+              
+              # 检查错误
+              if echo "$line" | grep -i "error\|failed\|undefined\|cannot"; then
+                echo "❌ 错误: $line" | tee -a ../logs/summary.log
+              fi
+            done
+          }
+          
+          # 检查编译结果
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "错误：多线程编译失败，尝试单线程编译..." >> ../logs/error.log
-            make -j1 V=sc 2>&1 | tee -a ../logs/error.log
-            if [ ${PIPESTATUS[0]} -ne 0 ]; then
-              echo "错误：单线程编译也失败" >> ../logs/error.log
+            echo "❌ 多线程编译失败，尝试单线程..." | tee -a ../logs/summary.log
+            make -j1 V=sc 2>&1 | tee -a ../logs/technical.log
+            
+            if [ $? -ne 0 ]; then
+              echo "❌ 编译失败" | tee -a ../logs/summary.log
               
-              # 输出错误日志的最后1000行到控制台
-              echo "=== 错误日志最后1000行 ==="
-              tail -n 1000 ../logs/error.log
-              echo "========================="
-              
-              # 创建错误摘要
-              echo "=== 错误摘要 ===" >> ../logs/error.log
-              grep -i "error\|failed\|undefined\|cannot\|no such file" ../logs/error.log | tail -n 20 >> ../logs/error.log
-              echo "=============" >> ../logs/error.log
+              # 提取关键错误信息
+              echo "" >> logs/summary.log
+              echo "=== 错误摘要 ===" >> logs/summary.log
+              tail -n 100 ../logs/technical.log | grep -i "error\|failed\|undefined\|cannot" | tail -n 10 >> logs/summary.log
+              echo "===============" >> logs/summary.log
               
               exit 1
             fi
           fi
           
-          echo "=== 步骤完成：编译固件 ===" >> ../logs/error.log
+          echo "✅ 编译成功" | tee -a logs/summary.log
+          echo "" >> logs/summary.log
+          
+      - name: 上传进度日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPO_SHORT }}-${{ matrix.config_type }}-progress
+          path: |
+            logs/progress.log
+          retention-days: 3
+          if-no-files-found: warn
           
       - name: 收集产物
         if: always()
         run: |
           set -e
-          # 确保日志文件存在
-          mkdir -p logs
-          touch logs/error.log
-          
-          echo "=== 步骤：收集产物 ===" >> logs/error.log
-          echo "开始收集构建产物..." >> logs/error.log
+          echo "🔄 收集构建产物..." | tee -a logs/summary.log
           
           ARTIFACT_DIR="${{ env.REPO_SHORT }}-${{ matrix.config_type }}"
           FIRMWARE_DIR="${{ env.REPO_SHORT }}-${{ matrix.config_type }}-firmware"
           mkdir -p "$ARTIFACT_DIR"
           mkdir -p "$FIRMWARE_DIR"
           
-          # 修改后的TARGET_DIR路径
           TARGET_DIR="openwrt/bin/targets/${{ env.CHIP }}"
           
           # 复制配置文件
-          echo "复制配置文件..." >> logs/error.log
           cp temp_config/.config "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}.config"
           
           # 复制其他文件
           if [ -f "openwrt/.config.buildinfo" ]; then
             cp openwrt/.config.buildinfo "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}.config.buildinfo"
-            echo "已复制 .config.buildinfo" >> logs/error.log
           fi
           
           if [ -d "$TARGET_DIR" ] && [ -f "$TARGET_DIR"/*.manifest ]; then
             cp "$TARGET_DIR"/*.manifest "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}.manifest"
-            echo "已复制 manifest 文件" >> logs/error.log
           fi
           
-          if [ -f "openwrt/build.log" ]; then
-            cp openwrt/build.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-build.log"
-            echo "已复制 build.log" >> logs/error.log
-          fi
-          
-          if [ -d "openwrt/bin/packages" ]; then
-            mkdir -p "$ARTIFACT_DIR/packages"
-            cp -r openwrt/bin/packages/* "$ARTIFACT_DIR/packages/"
-            echo "已复制 packages 目录" >> logs/error.log
-          fi
-          
-          # 处理固件文件 - 只处理包含"-squashfs-"的.bin文件
-          echo "处理固件文件..." >> logs/error.log
+          # 处理固件文件
           if [ -d "$TARGET_DIR" ]; then
-            echo "目标目录存在: $TARGET_DIR" >> logs/error.log
-            echo "=== 固件目录内容 ===" >> logs/error.log
-            ls -la "$TARGET_DIR" >> logs/error.log
-            echo "==================" >> logs/error.log
-            
             FOUND_FIRMWARE=0
             for file in "$TARGET_DIR"/*.bin; do
               if [ -f "$file" ] && [[ "$file" == *"-squashfs-"* ]]; then
                 FOUND_FIRMWARE=1
-                echo "发现符合条件的固件文件: $(basename "$file")" >> logs/error.log
-                
-                # 从文件名提取设备名称
                 DEVICE_NAME_FROM_FILE=$(basename "$file" | sed -n 's/^.*-\(.*\)-squashfs-.*\.bin$/\1/p')
                 
-                if [ -z "$DEVICE_NAME_FROM_FILE" ]; then
-                  echo "警告：无法从文件名中提取设备名称: $(basename "$file")" >> logs/error.log
-                  continue
+                if [ -n "$DEVICE_NAME_FROM_FILE" ]; then
+                  if [[ "$file" == *"factory"* ]]; then
+                    FIRMWARE_TYPE="factory"
+                  elif [[ "$file" == *"sysupgrade"* ]]; then
+                    FIRMWARE_TYPE="sysupgrade"
+                  else
+                    continue
+                  fi
+                  
+                  NEW_NAME="${{ env.REPO_SHORT }}-${DEVICE_NAME_FROM_FILE}-${FIRMWARE_TYPE}-${{ matrix.config_type }}.bin"
+                  cp "$file" "$FIRMWARE_DIR/$NEW_NAME"
+                  echo "  - $DEVICE_NAME_FROM_FILE ($FIRMWARE_TYPE)" >> logs/summary.log
                 fi
-                
-                # 确定固件类型
-                if [[ "$file" == *"factory"* ]]; then
-                  FIRMWARE_TYPE="factory"
-                elif [[ "$file" == *"sysupgrade"* ]]; then
-                  FIRMWARE_TYPE="sysupgrade"
-                else
-                  continue
-                fi
-                
-                NEW_NAME="${{ env.REPO_SHORT }}-${DEVICE_NAME_FROM_FILE}-${FIRMWARE_TYPE}-${{ matrix.config_type }}.bin"
-                cp "$file" "$FIRMWARE_DIR/$NEW_NAME"
-                echo "处理固件: $(basename "$file") -> $NEW_NAME" >> logs/error.log
               fi
             done
             
             if [ "$FOUND_FIRMWARE" -eq 0 ]; then
-              echo "警告：未找到包含'-squashfs-'的固件文件" >> logs/error.log
+              echo "⚠️ 警告: 未找到符合条件的固件" | tee -a logs/summary.log
             else
-              echo "成功处理 $FOUND_FIRMWARE 个固件文件" >> logs/error.log
-            fi
-          else
-            echo "警告：目标目录不存在: $TARGET_DIR" >> logs/error.log
-          fi
-          
-          # 复制错误日志
-          if [ -f logs/error.log ] && [ -s logs/error.log ]; then
-            cp logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log"
-            echo "已复制错误日志" >> logs/error.log
-          fi
-          
-          echo "=== 步骤完成：收集产物 ===" >> logs/error.log
-          
-      - name: 压缩和分割日志
-        if: always()
-        run: |
-          set -e
-          # 确保日志文件存在
-          mkdir -p logs
-          touch logs/error.log
-          
-          echo "=== 步骤：压缩和分割日志 ===" >> logs/error.log
-          ARTIFACT_DIR="${{ env.REPO_SHORT }}-${{ matrix.config_type }}"
-          
-          # 检查错误日志大小
-          if [ -f logs/error.log ]; then
-            LOG_SIZE=$(stat -c%s logs/error.log)
-            echo "错误日志大小: $LOG_SIZE 字节" >> logs/error.log
-            
-            # 如果日志大于10MB，进行压缩和分割
-            if [ "$LOG_SIZE" -gt 10485760 ]; then
-              echo "错误日志过大，进行压缩和分割..." >> logs/error.log
-              
-              # 压缩日志
-              gzip -c logs/error.log > "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log.gz"
-              
-              # 分割日志（每5MB一个文件）
-              split -b 5M -d logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log.part"
-              
-              # 创建分割日志的索引文件
-              echo "分割日志文件列表:" > "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log.index"
-              ls -la "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log.part"* >> "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log.index"
-              
-              echo "日志已压缩和分割" >> logs/error.log
-            else
-              # 如果日志不大，直接复制
-              cp logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log"
-              echo "日志已复制" >> logs/error.log
+              echo "✅ 成功处理 $FOUND_FIRMWARE 个固件文件" | tee -a logs/summary.log
             fi
           fi
           
-          echo "=== 步骤完成：压缩和分割日志 ===" >> logs/error.log
+          # 复制日志文件
+          cp logs/summary.log "$ARTIFACT_DIR/summary.log"
+          cp logs/technical.log "$ARTIFACT_DIR/technical.log"
           
-      - name: 显示错误摘要
-        if: failure()
-        run: |
-          set -e
-          # 确保日志文件存在
-          mkdir -p logs
-          touch logs/error.log
-          
-          echo "=== 步骤：显示错误摘要 ===" >> logs/error.log
-          if [ -f logs/error.log ]; then
-            echo "=== 错误日志摘要 ==="
-            echo "最后20行错误信息:"
-            tail -n 20 logs/error.log
-            echo ""
-            echo "包含'error'的行:"
-            grep -i "error" logs/error.log | tail -n 10
-            echo ""
-            echo "包含'failed'的行:"
-            grep -i "failed" logs/error.log | tail -n 10
-            echo "=================="
-          fi
-          echo "=== 步骤完成：显示错误摘要 ===" >> logs/error.log
+          echo "✅ 产物收集完成" | tee -a logs/summary.log
+          echo "" >> logs/summary.log
           
       - name: 上传产物
         if: always()
@@ -521,46 +365,22 @@ jobs:
       - name: 准备发布目录
         run: |
           set -e
-          echo "=== 步骤：准备发布目录 ===" 
-          mkdir -p release/{config,log,app,firmware,assets}
+          mkdir -p release/{config,log,firmware,assets}
           
           # 收集配置文件
-          echo "收集配置文件..." 
           find all-artifacts -name "*.config" -exec cp {} release/config/ \;
           find all-artifacts -name "*.config.buildinfo" -exec cp {} release/config/ \;
           find all-artifacts -name "*.manifest" -exec cp {} release/config/ \;
           
           # 收集日志文件
-          echo "收集日志文件..." 
-          find all-artifacts -name "*-build.log" -exec cp {} release/log/ \;
-          find all-artifacts -name "*-error.log" -exec cp {} release/log/ \;
-          find all-artifacts -name "*-error.log.gz" -exec cp {} release/log/ \;
-          find all-artifacts -name "*-error.log.part*" -exec cp {} release/log/ \;
-          find all-artifacts -name "*-error.log.index" -exec cp {} release/log/ \;
-          
-          # 收集软件包
-          echo "收集软件包..." 
-          find all-artifacts -name "packages" -type d -exec cp -r {} release/app/ \;
+          find all-artifacts -name "summary.log" -exec cp {} release/log/ \;
+          find all-artifacts -name "technical.log" -exec cp {} release/log/ \;
           
           # 收集固件文件
-          echo "收集固件文件..." 
           find all-artifacts -name "*.bin" -exec cp {} release/firmware/ \;
-          
-          # 打包文件
-          echo "打包文件..." 
-          tar -czf release/${{ env.CHIP }}-config.tar.gz -C release/config .
-          tar -czf release/${{ env.CHIP }}-log.tar.gz -C release/log .
-          tar -czf release/${{ env.CHIP }}-app.tar.gz -C release/app .
-          
-          # 复制到assets目录
-          cp release/${{ env.CHIP }}-config.tar.gz release/assets/
-          cp release/${{ env.CHIP }}-log.tar.gz release/assets/
-          cp release/${{ env.CHIP }}-app.tar.gz release/assets/
-          cp release/firmware/*.bin release/assets/ 2>/dev/null || true
           
           # 提取信息
           KERNEL_VERSION=""
-          LUCI_APPS=""
           DEVICE_LIST=""
           
           for config_file in release/config/*.config; do
@@ -571,49 +391,64 @@ jobs:
             fi
           done
           
-          if [ -d release/app ]; then
-            LUCI_APPS=$(find release/app -name "luci-app-*.ipk" | sed 's/.*\///g' | sort | uniq | tr '\n' ' ')
-          fi
-          
           if [ -d release/firmware ]; then
             DEVICE_LIST=$(ls release/firmware/*.bin | sed -n 's/.*-\([^-]*\)-.*\.bin/\1/p' | sort | uniq | tr '\n' ' ')
           fi
           
-          echo "KERNEL_VERSION=${KERNEL_VERSION}" >> $GITHUB_ENV
-          echo "LUCI_APPS=${LUCI_APPS}" >> $GITHUB_ENV
-          echo "DEVICE_LIST=${DEVICE_LIST}" >> $GITHUB_ENV
-          echo "RELEASE_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
+          # 创建用户友好的发布说明
+          cat > release/README.md << EOF
+          # IPQ60xx 固件发布
           
-          # 创建Release body文件
-          cat > release/body.md << EOF
-          默认管理地址：${{ env.DEFAULT_IP }}
-          默认用户：${{ env.DEFAULT_USER }}
-          默认密码：${{ env.DEFAULT_PASS }}
-          默认WIFI密码: ${{ env.DEFAULT_WIFI }}
+          ## 基本信息
+          - **发布日期**: $(date +%Y-%m-%d)
+          - **内核版本**: $KERNEL_VERSION
+          - **支持设备**: $DEVICE_LIST
+          - **作者**: ${{ env.AUTHOR }}
           
-          固件包括（${{ env.CHIP }}）的设备：${{ env.DEVICE_LIST }}
-          
-          固件内核版本：${{ env.KERNEL_VERSION }}
-          作者: ${{ env.AUTHOR }}
-          发布时间: ${{ env.RELEASE_DATE }}
-          编译的luci-app列表：${{ env.LUCI_APPS }}
+          ## 默认设置
+          - **管理地址**: ${{ env.DEFAULT_IP }}
+          - **用户名**: ${{ env.DEFAULT_USER }}
+          - **密码**: ${{ env.DEFAULT_PASS }}
+          - **WiFi密码**: ${{ env.DEFAULT_WIFI }}
           
           ## 下载说明
-          - 固件文件：请从下面的附件中下载对应设备的固件文件
-          - 配置文件：${{ env.CHIP }}-config.tar.gz
-          - 编译日志：${{ env.CHIP }}-log.tar.gz
-          - 软件包：${{ env.CHIP }}-app.tar.gz
+          1. 从下面的附件中下载对应设备的固件文件
+          2. 固件文件命名规则: \`仓库-设备-类型-配置.bin\`
+          3. 支持的固件类型:
+             - \`factory\`: 刷机固件（适用于首次刷机）
+             - \`sysupgrade\`: 升级固件（适用于系统内升级）
+          
+          ## 使用说明
+          1. 确保选择正确的设备型号
+          2. 刷机前请备份重要数据
+          3. 首次刷机使用 factory 固件
+          4. 系统内升级使用 sysupgrade 固件
+          
+          ## 技术信息
+          - 完整编译日志: 请下载 \`technical.log\` 文件
+          - 编译摘要: 请下载 \`summary.log\` 文件
+          
+          ## 注意事项
+          - 刷机有风险，请谨慎操作
+          - 如遇问题，请查看技术日志文件
           EOF
           
-          echo "=== 步骤完成：准备发布目录 ===" 
+          # 打包文件
+          tar -czf release/${{ env.CHIP }}-config.tar.gz -C release/config .
+          tar -czf release/${{ env.CHIP }}-log.tar.gz -C release/log .
+          
+          # 复制到assets目录
+          cp release/${{ env.CHIP }}-config.tar.gz release/assets/
+          cp release/${{ env.CHIP }}-log.tar.gz release/assets/
+          cp release/firmware/*.bin release/assets/ 2>/dev/null || true
           
       - name: 创建Release并上传文件
         uses: softprops/action-gh-release@v1
         if: always()
         with:
-          tag_name: ${{ env.RELEASE_DATE }}-${{ env.CHIP }}
-          name: ${{ env.CHIP }} Release ${{ env.RELEASE_DATE }}
-          body_path: release/body.md
+          tag_name: $(date +%Y%m%d)-${{ env.CHIP }}
+          name: ${{ env.CHIP }} Release $(date +%Y%m%d)
+          body_path: release/README.md
           files: |
             release/assets/*
           draft: false
