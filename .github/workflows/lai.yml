@@ -37,9 +37,26 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
         
+      - name: 初始化错误日志
+        run: |
+          set -e
+          echo "=== 步骤：初始化错误日志 ==="
+          mkdir -p logs
+          echo "=== 构建开始: $REPO_SHORT-$CHIP-$CONFIG_TYPE ===" > logs/error.log
+          echo "构建时间: $(date)" >> logs/error.log
+          echo "=== 步骤完成：初始化错误日志 ===" >> logs/error.log
+        env:
+          REPO_SHORT: ${{ matrix.repo }}
+          CHIP: ${{ env.CHIP }}
+          CONFIG_TYPE: ${{ matrix.config_type }}
+          
       - name: 设置仓库环境变量
         run: |
           set -e
+          # 确保日志文件存在
+          mkdir -p logs
+          touch logs/error.log
+          
           echo "=== 步骤：设置仓库环境变量 ===" >> logs/error.log
           IFS='|' read -r REPO_KEY REPO_URL REPO_BRANCH REPO_SHORT <<< "${{ matrix.repo }}"
           echo "REPO_URL=${REPO_URL}" >> $GITHUB_ENV
@@ -49,18 +66,13 @@ jobs:
           echo "仓库信息: REPO_SHORT=${REPO_SHORT}, REPO_BRANCH=${REPO_BRANCH}, CONFIG_TYPE=${{ matrix.config_type }}" >> logs/error.log
           echo "=== 步骤完成：设置仓库环境变量 ===" >> logs/error.log
           
-      - name: 初始化错误日志
-        run: |
-          set -e
-          echo "=== 步骤：初始化错误日志 ===" >> logs/error.log
-          mkdir -p logs
-          echo "=== 构建开始: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ matrix.config_type }} ===" > logs/error.log
-          echo "构建时间: $(date)" >> logs/error.log
-          echo "=== 步骤完成：初始化错误日志 ===" >> logs/error.log
-          
       - name: 清理工作目录
         run: |
           set -e
+          # 确保日志文件存在
+          mkdir -p logs
+          touch logs/error.log
+          
           echo "=== 步骤：清理工作目录 ===" >> logs/error.log
           rm -rf openwrt temp_config
           echo "已清理 openwrt 和 temp_config 目录" >> logs/error.log
@@ -110,6 +122,10 @@ jobs:
       - name: 合并配置文件
         run: |
           set -e
+          # 确保日志文件存在
+          mkdir -p logs
+          touch logs/error.log
+          
           echo "=== 步骤：合并配置文件 ===" >> logs/error.log
           echo "开始合并配置文件..." >> logs/error.log
           
@@ -142,6 +158,10 @@ jobs:
       - name: 提取设备信息
         run: |
           set -e
+          # 确保日志文件存在
+          mkdir -p logs
+          touch logs/error.log
+          
           echo "=== 步骤：提取设备信息 ===" >> logs/error.log
           echo "开始从配置文件中提取设备信息..." >> logs/error.log
           
@@ -178,6 +198,10 @@ jobs:
       - name: 克隆源码
         run: |
           set -e
+          # 确保日志文件存在
+          mkdir -p logs
+          touch logs/error.log
+          
           echo "=== 步骤：克隆源码 ===" >> logs/error.log
           echo "开始克隆源码..." >> logs/error.log
           echo "仓库URL: ${{ env.REPO_URL }}" >> logs/error.log
@@ -200,6 +224,10 @@ jobs:
       - name: 更新feeds
         run: |
           set -e
+          # 确保日志文件存在
+          mkdir -p logs
+          touch logs/error.log
+          
           echo "=== 步骤：更新feeds ===" >> logs/error.log
           echo "开始更新feeds..." >> logs/error.log
           cd openwrt
@@ -223,6 +251,10 @@ jobs:
       - name: 安装依赖
         run: |
           set -e
+          # 确保日志文件存在
+          mkdir -p logs
+          touch logs/error.log
+          
           echo "=== 步骤：安装依赖 ===" >> logs/error.log
           echo "开始安装编译依赖..." >> logs/error.log
           cd openwrt
@@ -243,6 +275,10 @@ jobs:
       - name: 编译固件
         run: |
           set -e
+          # 确保日志文件存在
+          mkdir -p logs
+          touch logs/error.log
+          
           echo "=== 步骤：编译固件 ===" >> logs/error.log
           echo "开始编译固件..." >> logs/error.log
           cd openwrt
@@ -290,6 +326,10 @@ jobs:
         if: always()
         run: |
           set -e
+          # 确保日志文件存在
+          mkdir -p logs
+          touch logs/error.log
+          
           echo "=== 步骤：收集产物 ===" >> logs/error.log
           echo "开始收集构建产物..." >> logs/error.log
           
@@ -385,6 +425,10 @@ jobs:
         if: always()
         run: |
           set -e
+          # 确保日志文件存在
+          mkdir -p logs
+          touch logs/error.log
+          
           echo "=== 步骤：压缩和分割日志 ===" >> logs/error.log
           ARTIFACT_DIR="${{ env.REPO_SHORT }}-${{ matrix.config_type }}"
           
@@ -421,6 +465,10 @@ jobs:
         if: failure()
         run: |
           set -e
+          # 确保日志文件存在
+          mkdir -p logs
+          touch logs/error.log
+          
           echo "=== 步骤：显示错误摘要 ===" >> logs/error.log
           if [ -f logs/error.log ]; then
             echo "=== 错误日志摘要 ==="
@@ -473,17 +521,17 @@ jobs:
       - name: 准备发布目录
         run: |
           set -e
-          echo "=== 步骤：准备发布目录 ===" >> logs/error.log
+          echo "=== 步骤：准备发布目录 ===" 
           mkdir -p release/{config,log,app,firmware,assets}
           
           # 收集配置文件
-          echo "收集配置文件..." >> logs/error.log
+          echo "收集配置文件..." 
           find all-artifacts -name "*.config" -exec cp {} release/config/ \;
           find all-artifacts -name "*.config.buildinfo" -exec cp {} release/config/ \;
           find all-artifacts -name "*.manifest" -exec cp {} release/config/ \;
           
           # 收集日志文件
-          echo "收集日志文件..." >> logs/error.log
+          echo "收集日志文件..." 
           find all-artifacts -name "*-build.log" -exec cp {} release/log/ \;
           find all-artifacts -name "*-error.log" -exec cp {} release/log/ \;
           find all-artifacts -name "*-error.log.gz" -exec cp {} release/log/ \;
@@ -491,15 +539,15 @@ jobs:
           find all-artifacts -name "*-error.log.index" -exec cp {} release/log/ \;
           
           # 收集软件包
-          echo "收集软件包..." >> logs/error.log
+          echo "收集软件包..." 
           find all-artifacts -name "packages" -type d -exec cp -r {} release/app/ \;
           
           # 收集固件文件
-          echo "收集固件文件..." >> logs/error.log
+          echo "收集固件文件..." 
           find all-artifacts -name "*.bin" -exec cp {} release/firmware/ \;
           
           # 打包文件
-          echo "打包文件..." >> logs/error.log
+          echo "打包文件..." 
           tar -czf release/${{ env.CHIP }}-config.tar.gz -C release/config .
           tar -czf release/${{ env.CHIP }}-log.tar.gz -C release/log .
           tar -czf release/${{ env.CHIP }}-app.tar.gz -C release/app .
@@ -557,7 +605,7 @@ jobs:
           - 软件包：${{ env.CHIP }}-app.tar.gz
           EOF
           
-          echo "=== 步骤完成：准备发布目录 ===" >> logs/error.log
+          echo "=== 步骤完成：准备发布目录 ===" 
           
       - name: 创建Release并上传文件
         uses: softprops/action-gh-release@v1
