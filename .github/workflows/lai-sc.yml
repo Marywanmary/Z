@@ -40,25 +40,38 @@ jobs:
       - name: 设置仓库环境变量
         run: |
           set -e
+          echo "=== 设置仓库环境变量 ==="
           IFS='|' read -r REPO_KEY REPO_URL REPO_BRANCH REPO_SHORT <<< "${{ matrix.repo }}"
           echo "REPO_URL=${REPO_URL}" >> $GITHUB_ENV
           echo "REPO_BRANCH=${REPO_BRANCH}" >> $GITHUB_ENV
           echo "REPO_SHORT=${REPO_SHORT}" >> $GITHUB_ENV
           echo "CONFIG_TYPE=${{ matrix.config_type }}" >> $GITHUB_ENV
+          echo "仓库URL: ${REPO_URL}"
+          echo "仓库分支: ${REPO_BRANCH}"
+          echo "仓库简称: ${REPO_SHORT}"
+          echo "配置类型: ${{ matrix.config_type }}"
+          echo "=== 仓库环境变量设置完成 ==="
           
       - name: 初始化错误日志
         run: |
           set -e
+          echo "=== 初始化错误日志 ==="
           mkdir -p logs
           echo "=== 构建开始: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ matrix.config_type }} ===" > logs/error.log
+          echo "构建时间: $(date)" >> logs/error.log
+          echo "=== 错误日志初始化完成 ==="
           
       - name: 清理工作目录
         run: |
           set -e
+          echo "=== 清理工作目录 ==="
           rm -rf openwrt temp_config
+          echo "工作目录清理完成"
+          echo "=== 工作目录清理完成 ==="
           
       # 优化缓存策略 - 仅依赖基础配置
       - name: 缓存feeds目录（全矩阵通用）
+        id: cache-feeds
         uses: actions/cache@v4
         with:
           path: openwrt/feeds
@@ -67,6 +80,7 @@ jobs:
             feeds-
           
       - name: 缓存下载目录（全矩阵通用）
+        id: cache-dl
         uses: actions/cache@v4
         with:
           path: openwrt/dl
@@ -75,6 +89,7 @@ jobs:
             dl-
             
       - name: 缓存ccache（全矩阵通用）
+        id: cache-ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
@@ -83,6 +98,7 @@ jobs:
             ccache-
             
       - name: 缓存工具链目录（全矩阵通用）
+        id: cache-toolchain
         uses: actions/cache@v4
         with:
           path: openwrt/build_dir/toolchain-*
@@ -91,6 +107,7 @@ jobs:
             toolchain-
             
       - name: 缓存staging目录（全矩阵通用）
+        id: cache-staging
         uses: actions/cache@v4
         with:
           path: openwrt/staging_dir
@@ -98,12 +115,26 @@ jobs:
           restore-keys: |
             staging-
           
+      - name: 显示缓存状态
+        run: |
+          echo "=== 缓存状态 ==="
+          echo "feeds缓存: ${{ steps.cache-feeds.outputs.cache-hit }}"
+          echo "dl缓存: ${{ steps.cache-dl.outputs.cache-hit }}"
+          echo "ccache缓存: ${{ steps.cache-ccache.outputs.cache-hit }}"
+          echo "toolchain缓存: ${{ steps.cache-toolchain.outputs.cache-hit }}"
+          echo "staging缓存: ${{ steps.cache-staging.outputs.cache-hit }}"
+          echo "=== 缓存状态显示完成 ==="
+          
       - name: 合并配置文件
         run: |
           set -e
+          echo "=== 开始合并配置文件 ==="
           mkdir -p temp_config
+          echo "合并基础配置: configs/${{ env.CHIP }}_base.config" >> logs/error.log
           cat configs/${{ env.CHIP }}_base.config > temp_config/.config
+          echo "合并仓库配置: configs/${{ env.REPO_SHORT }}_base.config" >> logs/error.log
           cat configs/${{ env.REPO_SHORT }}_base.config >> temp_config/.config
+          echo "合并类型配置: configs/${{ matrix.config_type }}.config" >> logs/error.log
           cat configs/${{ matrix.config_type }}.config >> temp_config/.config
           
           # 验证配置文件合并成功
@@ -116,10 +147,13 @@ jobs:
           echo "=== 配置文件内容片段 ===" >> logs/error.log
           grep -E "CONFIG_TARGET_DEVICE_" temp_config/.config >> logs/error.log
           echo "========================" >> logs/error.log
+          echo "配置文件合并成功"
+          echo "=== 配置文件合并完成 ==="
           
       - name: 提取设备信息
         run: |
           set -e
+          echo "=== 开始提取设备信息 ==="
           DEVICE_LINES=$(grep '^CONFIG_TARGET_DEVICE_.*=y$' temp_config/.config)
           if [ -z "$DEVICE_LINES" ]; then
             echo "错误：配置文件中未找到启用的设备" >> logs/error.log
@@ -143,55 +177,74 @@ jobs:
           echo "DEVICE_NAMES=${DEVICE_NAMES}" >> $GITHUB_ENV
           echo "提取到的设备名称: $DEVICE_NAMES" >> logs/error.log
           echo "设备数量: $DEVICE_COUNT" >> logs/error.log
+          echo "设备信息提取成功"
+          echo "=== 设备信息提取完成 ==="
           
       - name: 检查系统依赖
         run: |
           set -e
-          echo "=== 检查系统依赖 ===" >> logs/error.log
+          echo "=== 开始检查系统依赖 ==="
+          echo "检查已安装的软件包..." >> logs/error.log
           dpkg -l | grep -E "build-essential|clang|flex|bison|g\+\+|gawk|gcc-multilib|g\+\+-multilib|gettext|git|libncurses5-dev|libssl-dev|python3-distutils|python3-setuptools|rsync|unzip|zlib1g-dev|file|wget" >> logs/error.log
-          echo "=== 检查编译工具 ===" >> logs/error.log
+          echo "检查编译工具..." >> logs/error.log
           which gcc g++ make git python3 >> logs/error.log
           gcc --version | head -1 >> logs/error.log
           g++ --version | head -1 >> logs/error.log
           make --version | head -1 >> logs/error.log
           git --version >> logs/error.log
           python3 --version >> logs/error.log
+          echo "系统依赖检查完成"
+          echo "=== 系统依赖检查完成 ==="
           
       - name: 克隆源码
         run: |
           set -e
-          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt
+          echo "=== 开始克隆源码 ==="
+          echo "克隆仓库: ${{ env.REPO_URL }}" >> logs/error.log
+          echo "克隆分支: ${{ env.REPO_BRANCH }}" >> logs/error.log
+          git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} openwrt 2>&1 | tee -a logs/error.log
+          echo "源码克隆完成"
+          echo "=== 源码克隆完成 ==="
           
       - name: 安装依赖
         run: |
           set -e
+          echo "=== 开始安装依赖 ==="
           cd openwrt
+          echo "更新软件包列表..." >> ../logs/error.log
+          sudo apt-get update >> ../logs/error.log 2>&1
           echo "安装编译依赖..." >> ../logs/error.log
-          sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget >> ../logs/error.log 2>&1
+          echo "依赖安装完成"
+          echo "=== 依赖安装完成 ==="
           
       # 新增步骤：执行自定义脚本
       - name: 执行自定义脚本
         run: |
           set -e
+          echo "=== 开始执行自定义脚本 ==="
           cd openwrt
-          echo "执行自定义脚本..." >> ../logs/error.log
+          echo "执行脚本: ../scripts/script.sh" >> ../logs/error.log
           chmod +x ../scripts/script.sh
           ../scripts/script.sh 2>&1 | tee -a ../logs/error.log
+          echo "自定义脚本执行完成"
+          echo "=== 自定义脚本执行完成 ==="
           
       - name: 编译固件
         run: |
           set -e
+          echo "=== 开始编译固件 ==="
           cd openwrt
           
           # 应用配置
+          echo "应用配置文件..." >> ../logs/error.log
           cp ../temp_config/.config .config
           
           # 添加缺失的内核配置选项
           echo "# CONFIG_NF_CONNTRACK_DSCPREMARK_EXT is not set" >> .config
           
           # 验证配置文件
-          echo "=== 验证配置文件 ===" >> ../logs/error.log
+          echo "验证配置文件..." >> ../logs/error.log
           grep -E "CONFIG_TARGET_DEVICE_|CONFIG_LINUX_KERNEL_VERSION|CONFIG_NF_CONNTRACK_DSCPREMARK_EXT" .config >> ../logs/error.log
           
           echo "运行defconfig..." >> ../logs/error.log
@@ -220,12 +273,14 @@ jobs:
             fi
           fi
           
-          echo "编译完成" >> ../logs/error.log
+          echo "编译完成"
+          echo "=== 编译固件完成 ==="
           
       - name: 收集产物
         if: always()
         run: |
           set -e
+          echo "=== 开始收集产物 ==="
           ARTIFACT_DIR="${{ env.REPO_SHORT }}-${{ matrix.config_type }}"
           FIRMWARE_DIR="${{ env.REPO_SHORT }}-${{ matrix.config_type }}-firmware"
           mkdir -p "$ARTIFACT_DIR"
@@ -309,6 +364,9 @@ jobs:
             echo "目标目录不存在: $TARGET_DIR" > "$FIRMWARE_DIR/target-directory-not-found.txt"
           fi
           
+          echo "产物收集完成"
+          echo "=== 产物收集完成 ==="
+          
       - name: 上传错误日志
         if: failure()
         uses: actions/upload-artifact@v4
@@ -356,24 +414,30 @@ jobs:
       - name: 准备发布目录
         run: |
           set -e
+          echo "=== 开始准备发布目录 ==="
           mkdir -p release/{config,log,app,firmware,assets}
           
           # 收集配置文件
+          echo "收集配置文件..."
           find all-artifacts -name "*.config" -exec cp {} release/config/ \;
           find all-artifacts -name "*.config.buildinfo" -exec cp {} release/config/ \;
           find all-artifacts -name "*.manifest" -exec cp {} release/config/ \;
           
           # 收集日志文件
+          echo "收集日志文件..."
           find all-artifacts -name "*-build.log" -exec cp {} release/log/ \;
           find all-artifacts -name "*-error.log" -exec cp {} release/log/ \;
           
           # 收集软件包
+          echo "收集软件包..."
           find all-artifacts -name "packages" -type d -exec cp -r {} release/app/ \;
           
           # 收集固件文件
+          echo "收集固件文件..."
           find all-artifacts -name "*.bin" -exec cp {} release/firmware/ \;
           
           # 打包文件
+          echo "打包文件..."
           tar -czf release/${{ env.CHIP }}-config.tar.gz -C release/config .
           tar -czf release/${{ env.CHIP }}-log.tar.gz -C release/log .
           tar -czf release/${{ env.CHIP }}-app.tar.gz -C release/app .
@@ -430,6 +494,9 @@ jobs:
           - 编译日志：${{ env.CHIP }}-log.tar.gz
           - 软件包：${{ env.CHIP }}-app.tar.gz
           EOF
+          
+          echo "发布目录准备完成"
+          echo "=== 发布目录准备完成 ==="
           
       - name: 创建Release并上传文件
         uses: softprops/action-gh-release@v1
