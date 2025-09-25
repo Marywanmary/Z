@@ -69,7 +69,7 @@ jobs:
           echo "REPO_BRANCH=${REPO_BRANCH}" >> $GITHUB_ENV
           echo "REPO_SHORT=${REPO_SHORT}" >> $GITHUB_ENV
           echo "CONFIG_TYPE=${{ matrix.config_type }}" >> $GITHUB_ENV
-          echo "设置仓库环境变量完成: REPO_SHORT=${REPO_SHORT}, REPO_BRANCH=${REPO_BRANCH}"
+          echo "✅ 设置仓库环境变量完成: REPO_SHORT=${REPO_SHORT}, REPO_BRANCH=${REPO_BRANCH}"
           
       - name: 初始化日志
         run: |
@@ -78,18 +78,19 @@ jobs:
           echo "=== 构建开始: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ matrix.config_type }} ===" > logs/error.log
           echo "=== 用户友好日志 ===" > logs/user-friendly.log
           echo "构建开始: ${{ env.REPO_SHORT }}-${{ env.CHIP }}-${{ matrix.config_type }}" >> logs/user-friendly.log
-          echo "日志初始化完成"
+          echo "✅ 日志初始化完成"
           
       - name: 清理工作目录
         run: |
           set -e
-          echo "正在清理工作目录..." >> logs/user-friendly.log
+          echo "🔄 正在清理工作目录..." >> logs/user-friendly.log
           
           # 强制清理所有相关目录
           rm -rf openwrt temp_config
           mkdir -p logs
           
-          echo "工作目录清理完成" >> logs/user-friendly.log
+          echo "✅ 工作目录清理完成" >> logs/user-friendly.log
+          echo "✅ 工作目录清理完成"
           
       # 优化缓存策略 - 更具体的缓存键
       - name: 缓存feeds目录
@@ -147,40 +148,52 @@ jobs:
           echo "=== 缓存状态检查 ===" >> logs/user-friendly.log
           if [ -d "openwrt/feeds" ] && [ "$(ls -A openwrt/feeds)" ]; then
             echo "feeds缓存: 命中" >> logs/user-friendly.log
+            FEEDS_CACHE="✅"
           else
             echo "feeds缓存: 未命中" >> logs/user-friendly.log
+            FEEDS_CACHE="❌"
           fi
           
           if [ -d "openwrt/dl" ] && [ "$(ls -A openwrt/dl)" ]; then
             echo "dl缓存: 命中" >> logs/user-friendly.log
+            DL_CACHE="✅"
           else
             echo "dl缓存: 未命中" >> logs/user-friendly.log
+            DL_CACHE="❌"
           fi
           
           if [ -d "~/.ccache" ] && [ "$(ls -A ~/.ccache)" ]; then
             echo "ccache缓存: 命中" >> logs/user-friendly.log
+            CCACHE_CACHE="✅"
           else
             echo "ccache缓存: 未命中" >> logs/user-friendly.log
+            CCACHE_CACHE="❌"
           fi
           
           if [ -d "openwrt/build_dir" ] && [ "$(ls -A openwrt/build_dir)" ]; then
             echo "工具链缓存: 命中" >> logs/user-friendly.log
+            TOOLCHAIN_CACHE="✅"
           else
             echo "工具链缓存: 未命中" >> logs/user-friendly.log
+            TOOLCHAIN_CACHE="❌"
           fi
           
           if [ -d "openwrt/staging_dir" ] && [ "$(ls -A openwrt/staging_dir)" ]; then
             echo "staging缓存: 命中" >> logs/user-friendly.log
+            STAGING_CACHE="✅"
           else
             echo "staging缓存: 未命中" >> logs/user-friendly.log
+            STAGING_CACHE="❌"
           fi
-          echo "缓存状态检查完成" >> logs/user-friendly.log
+          
+          echo "✅ 缓存状态检查完成" >> logs/user-friendly.log
+          echo "缓存状态: feeds=$FEEDS_CACHE, dl=$DL_CACHE, ccache=$CCACHE_CACHE, toolchain=$TOOLCHAIN_CACHE, staging=$STAGING_CACHE"
           
       - name: 合并配置文件
         run: |
           set -e
           mkdir -p temp_config
-          echo "正在合并配置文件..." >> logs/user-friendly.log
+          echo "🔄 合并配置文件..." >> logs/user-friendly.log
           echo "合并文件: configs/${{ env.CHIP }}_base.config" >> logs/user-friendly.log
           cat configs/${{ env.CHIP }}_base.config > temp_config/.config
           echo "合并文件: configs/${{ env.REPO_SHORT }}_base.config" >> logs/user-friendly.log
@@ -190,62 +203,67 @@ jobs:
           
           # 验证配置文件合并成功
           if [ ! -s temp_config/.config ]; then
-            echo "错误：配置文件合并失败" >> logs/user-friendly.log
+            echo "❌ 错误：配置文件合并失败" >> logs/user-friendly.log
             exit 1
           fi
-          echo "配置文件合并成功，大小: $(wc -c < temp_config/.config) 字节" >> logs/user-friendly.log
+          
+          # 提取设备信息用于显示
+          DEVICE_NAMES=$(grep '^CONFIG_TARGET_DEVICE_.*=y$' temp_config/.config | sed -n 's/^CONFIG_TARGET_DEVICE_[^_]*_[^_]*_DEVICE_\([^=]*\)=y$/\1/p' | tr '\n' ' ')
+          echo "✅ 配置文件合并成功，目标设备: $DEVICE_NAMES" >> logs/user-friendly.log
+          echo "✅ 配置文件合并成功，目标设备: $DEVICE_NAMES"
           
       - name: 验证配置文件合并
         run: |
           set -e
-          echo "=== 验证配置文件合并 ===" >> logs/user-friendly.log
+          echo "🔄 验证配置文件合并..." >> logs/user-friendly.log
           
           # 检查基础配置文件
           echo "检查基础配置文件..." >> logs/user-friendly.log
           if [ ! -f "configs/${{ env.CHIP }}_base.config" ]; then
-            echo "错误：缺少芯片基础配置文件: configs/${{ env.CHIP }}_base.config" >> logs/user-friendly.log
+            echo "❌ 错误：缺少芯片基础配置文件: configs/${{ env.CHIP }}_base.config" >> logs/user-friendly.log
             exit 1
           fi
           
           if [ ! -f "configs/${{ env.REPO_SHORT }}_base.config" ]; then
-            echo "错误：缺少仓库基础配置文件: configs/${{ env.REPO_SHORT }}_base.config" >> logs/user-friendly.log
+            echo "❌ 错误：缺少仓库基础配置文件: configs/${{ env.REPO_SHORT }}_base.config" >> logs/user-friendly.log
             exit 1
           fi
           
           if [ ! -f "configs/${{ matrix.config_type }}.config" ]; then
-            echo "错误：缺少配置类型文件: configs/${{ matrix.config_type }}.config" >> logs/user-friendly.log
+            echo "❌ 错误：缺少配置类型文件: configs/${{ matrix.config_type }}.config" >> logs/user-friendly.log
             exit 1
           fi
           
           # 检查合并后的配置文件
           echo "检查合并后的配置文件..." >> logs/user-friendly.log
           if [ ! -s temp_config/.config ]; then
-            echo "错误：合并后的配置文件为空" >> logs/user-friendly.log
+            echo "❌ 错误：合并后的配置文件为空" >> logs/user-friendly.log
             exit 1
           fi
           
           # 验证关键配置项
           echo "验证关键配置项..." >> logs/user-friendly.log
           if ! grep -q "CONFIG_TARGET_qualcommax=y" temp_config/.config; then
-            echo "错误：合并后的配置文件中缺少目标架构配置" >> logs/user-friendly.log
+            echo "❌ 错误：合并后的配置文件中缺少目标架构配置" >> logs/user-friendly.log
             exit 1
           fi
           
           if ! grep -q "CONFIG_TARGET_qualcommax_ipq60xx=y" temp_config/.config; then
-            echo "错误：合并后的配置文件中缺少目标芯片配置" >> logs/user-friendly.log
+            echo "❌ 错误：合并后的配置文件中缺少目标芯片配置" >> logs/user-friendly.log
             exit 1
           fi
           
-          echo "配置文件验证通过" >> logs/user-friendly.log
+          echo "✅ 配置文件验证通过" >> logs/user-friendly.log
+          echo "✅ 配置文件验证通过"
           
       - name: 提取设备信息
         run: |
           set -e
-          echo "=== 开始提取设备信息 ===" >> logs/user-friendly.log
+          echo "🔄 提取设备信息..." >> logs/user-friendly.log
           
           # 检查配置文件是否存在
           if [ ! -s temp_config/.config ]; then
-            echo "错误：配置文件不存在或为空" >> logs/user-friendly.log
+            echo "❌ 错误：配置文件不存在或为空" >> logs/user-friendly.log
             exit 1
           fi
           
@@ -257,7 +275,7 @@ jobs:
           # 提取设备行 - 使用更精确的正则表达式
           DEVICE_LINES=$(grep '^CONFIG_TARGET_DEVICE_.*=y$' temp_config/.config)
           if [ -z "$DEVICE_LINES" ]; then
-            echo "错误：配置文件中未找到启用的设备" >> logs/user-friendly.log
+            echo "❌ 错误：配置文件中未找到启用的设备" >> logs/user-friendly.log
             echo "请检查配置文件是否包含类似以下行：" >> logs/user-friendly.log
             echo "CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y" >> logs/user-friendly.log
             exit 1
@@ -276,19 +294,19 @@ jobs:
           # 验证设备名称
           DEVICE_COUNT=$(echo "$DEVICE_NAMES" | wc -w)
           if [ "$DEVICE_COUNT" -eq 0 ]; then
-            echo "错误：无法从配置文件中提取设备名称" >> logs/user-friendly.log
+            echo "❌ 错误：无法从配置文件中提取设备名称" >> logs/user-friendly.log
             echo "提取到的设备行: $DEVICE_LINES" >> logs/user-friendly.log
             exit 1
           fi
           
           echo "DEVICE_NAMES=${DEVICE_NAMES}" >> $GITHUB_ENV
-          echo "提取到的设备名称: $DEVICE_NAMES" >> logs/user-friendly.log
-          echo "设备数量: $DEVICE_COUNT" >> logs/user-friendly.log
+          echo "✅ 提取到的设备名称: $DEVICE_NAMES" >> logs/user-friendly.log
+          echo "✅ 提取到的设备名称: $DEVICE_NAMES"
           
       - name: 检查目录状态
         run: |
           set -e
-          echo "=== 检查目录状态 ===" >> logs/user-friendly.log
+          echo "🔄 检查目录状态..." >> logs/user-friendly.log
           
           if [ -d "openwrt" ]; then
             echo "openwrt 目录存在，大小: $(du -sh openwrt | cut -f1)" >> logs/user-friendly.log
@@ -304,17 +322,18 @@ jobs:
             echo "temp_config 目录不存在" >> logs/user-friendly.log
           fi
           
-          echo "目录状态检查完成" >> logs/user-friendly.log
+          echo "✅ 目录状态检查完成" >> logs/user-friendly.log
+          echo "✅ 目录状态检查完成"
           
       - name: 克隆源码
         run: |
           set -e
-          echo "正在准备克隆源码..." >> logs/user-friendly.log
+          echo "🔄 准备克隆源码..." >> logs/user-friendly.log
           
           # 使用临时目录克隆，然后重命名
           TEMP_DIR="openwrt_temp_$(date +%s)"
           
-          echo "正在克隆源码仓库: ${{ env.REPO_URL }} (分支: ${{ env.REPO_BRANCH }})" >> logs/user-friendly.log
+          echo "克隆源码仓库: ${{ env.REPO_URL }} (分支: ${{ env.REPO_BRANCH }})" >> logs/user-friendly.log
           git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} "$TEMP_DIR"
           
           # 如果目标目录存在，先删除
@@ -325,44 +344,49 @@ jobs:
           
           # 重命名临时目录
           mv "$TEMP_DIR" openwrt
-          echo "源码克隆完成" >> logs/user-friendly.log
+          echo "✅ 源码克隆完成" >> logs/user-friendly.log
           
           # 验证克隆结果
           if [ ! -d "openwrt" ] || [ ! -f "openwrt/Makefile" ]; then
-            echo "错误：源码克隆失败，目录不存在或不完整" >> logs/user-friendly.log
+            echo "❌ 错误：源码克隆失败，目录不存在或不完整" >> logs/user-friendly.log
             exit 1
           fi
           
-          echo "源码验证成功" >> logs/user-friendly.log
+          echo "✅ 源码验证成功" >> logs/user-friendly.log
+          echo "✅ 源码克隆成功"
           
       - name: 更新feeds
         run: |
           set -e
           cd openwrt
+          echo "🔄 更新feeds..." >> ../logs/user-friendly.log
+          
           echo "=== 更新feeds前，feeds目录内容 ===" >> ../logs/user-friendly.log
           ls -la feeds/ >> ../logs/user-friendly.log 2>&1 || echo "feeds目录不存在" >> ../logs/user-friendly.log
           
-          echo "更新feeds..." >> ../logs/user-friendly.log
+          echo "执行 feeds update..." >> ../logs/user-friendly.log
           ./scripts/feeds update -a 2>&1 | tee -a ../logs/error.log | grep -E "(ERROR|FATAL|Warning:|Cannot)" || true
           
           echo "=== 更新feeds后，feeds目录内容 ===" >> ../logs/user-friendly.log
           ls -la feeds/ >> ../logs/user-friendly.log 2>&1 || echo "feeds目录不存在" >> ../logs/user-friendly.log
           
-          echo "安装feeds..." >> ../logs/user-friendly.log
+          echo "执行 feeds install..." >> ../logs/user-friendly.log
           ./scripts/feeds install -a 2>&1 | tee -a ../logs/error.log | grep -E "(ERROR|FATAL|Warning:|Cannot)" || true
           
           echo "=== 安装feeds后，feeds目录内容 ===" >> ../logs/user-friendly.log
           ls -la feeds/ >> ../logs/user-friendly.log 2>&1 || echo "feeds目录不存在" >> ../logs/user-friendly.log
-          echo "Feeds更新和安装完成" >> ../logs/user-friendly.log
+          echo "✅ Feeds更新和安装完成" >> ../logs/user-friendly.log
+          echo "✅ Feeds更新和安装完成"
           
       - name: 安装依赖
         run: |
           set -e
           cd openwrt
-          echo "=== 开始安装编译依赖 ===" >> ../logs/user-friendly.log
+          echo "🔄 安装编译依赖..." >> ../logs/user-friendly.log
           sudo apt-get update
           sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils python3-setuptools rsync unzip zlib1g-dev file wget
-          echo "=== 编译依赖安装完成 ===" >> ../logs/user-friendly.log
+          echo "✅ 编译依赖安装完成" >> ../logs/user-friendly.log
+          echo "✅ 编译依赖安装完成"
           
       - name: 编译固件
         run: |
@@ -371,16 +395,16 @@ jobs:
           
           # 应用配置
           cp ../temp_config/.config .config
-          echo "=== 应用配置后的内容 ===" >> ../logs/user-friendly.log
+          echo "🔄 应用配置..." >> ../logs/user-friendly.log
           echo "=== 目标设备配置 ===" >> ../logs/user-friendly.log
           grep -E "CONFIG_TARGET" .config >> ../logs/user-friendly.log
           echo "====================" >> ../logs/user-friendly.log
           
           # 验证配置
-          echo "=== 验证配置 ===" >> ../logs/user-friendly.log
+          echo "验证配置..." >> ../logs/user-friendly.log
           make defconfig 2>&1 | tee -a ../logs/error.log | grep -E "(ERROR|FATAL|Warning:|Cannot)" || true
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "错误：配置验证失败" >> ../logs/user-friendly.log
+            echo "❌ 错误：配置验证失败" >> ../logs/user-friendly.log
             exit 1
           fi
           
@@ -391,11 +415,11 @@ jobs:
           ccache -M 5G 2>&1 | tee -a ../logs/error.log
           
           # 清理之前的构建（如果存在）
-          echo "=== 清理之前的构建 ===" >> ../logs/user-friendly.log
+          echo "清理之前的构建..." >> ../logs/user-friendly.log
           make clean 2>&1 | tee -a ../logs/error.log | grep -E "(ERROR|FATAL|Warning:|Cannot)" || true
           
           # 编译
-          echo "=== 开始多线程编译 ===" >> ../logs/user-friendly.log
+          echo "🔄 开始编译..." >> ../logs/user-friendly.log
           echo "编译开始，请耐心等待..." >> ../logs/user-friendly.log
           
           # 创建进度日志
@@ -414,27 +438,30 @@ jobs:
           ) &
           MONITOR_PID=$!
           
-          # 编译并过滤输出
-          make -j$(nproc) V=s 2>&1 | tee -a ../logs/error.log | grep -E "(ERROR|FATAL|Warning:|Cannot|make\*\*\*|No rule to make target|undefined reference to)" || true
+          # 编译并过滤输出 - 改进过滤规则，减少冗余信息
+          make -j$(nproc) V=s 2>&1 | tee -a ../logs/error.log | grep -E "(ERROR|FATAL|Warning:|Cannot|make\*\*\*|No rule to make target|undefined reference to|\.c\|\.h\|\.o\|\.a\|\.so|CC|CXX|LD|AR|NM|PKG_INSTALL)" | grep -v "ERROR.*_.*" | grep -v "warning.*_.*" || true
+          
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             kill $MONITOR_PID 2>/dev/null || true
-            echo "错误：多线程编译失败，尝试使用单线程重新编译..." >> ../logs/user-friendly.log
+            echo "❌ 多线程编译失败，尝试使用单线程重新编译..." >> ../logs/user-friendly.log
             
             # 清理可能的损坏文件
-            echo "=== 清理可能的损坏文件 ===" >> ../logs/user-friendly.log
+            echo "清理可能的损坏文件..." >> ../logs/user-friendly.log
             make -j1 clean 2>&1 | tee -a ../logs/error.log | grep -E "(ERROR|FATAL|Warning:|Cannot)" || true
             
-            echo "=== 开始单线程编译 ===" >> ../logs/user-friendly.log
-            make -j1 V=sc 2>&1 | tee -a ../logs/error.log | grep -E "(ERROR|FATAL|Warning:|Cannot|make\*\*\*|No rule to make target|undefined reference to)" || true
+            echo "开始单线程编译..." >> ../logs/user-friendly.log
+            make -j1 V=sc 2>&1 | tee -a ../logs/error.log | grep -E "(ERROR|FATAL|Warning:|Cannot|make\*\*\*|No rule to make target|undefined reference to|\.c\|\.h\|\.o\|\.a\|\.so|CC|CXX|LD|AR|NM|PKG_INSTALL)" | grep -v "ERROR.*_.*" | grep -v "warning.*_.*" || true
+            
             if [ ${PIPESTATUS[0]} -ne 0 ]; then
               kill $MONITOR_PID 2>/dev/null || true
-              echo "错误：单线程编译也失败" >> ../logs/user-friendly.log
+              echo "❌ 单线程编译也失败" >> ../logs/user-friendly.log
               exit 1
             fi
           fi
           
           kill $MONITOR_PID 2>/dev/null || true
-          echo "编译完成" >> ../logs/user-friendly.log
+          echo "✅ 编译完成" >> ../logs/user-friendly.log
+          echo "✅ 编译完成"
           
       - name: 上传进度日志
         if: always()
@@ -450,6 +477,7 @@ jobs:
         if: always()
         run: |
           set -e
+          echo "🔄 收集产物..." >> logs/user-friendly.log
           ARTIFACT_DIR="${{ env.REPO_SHORT }}-${{ matrix.config_type }}"
           FIRMWARE_DIR="${{ env.REPO_SHORT }}-${{ matrix.config_type }}-firmware"
           mkdir -p "$ARTIFACT_DIR"
@@ -488,6 +516,7 @@ jobs:
           
           # 处理固件文件
           if [ -d "$TARGET_DIR" ]; then
+            FIRMWARE_COUNT=0
             for file in "$TARGET_DIR"/*.bin; do
               if [ -f "$file" ] && [[ "$file" == *"-squashfs-"* ]]; then
                 DEVICE_NAME_FROM_FILE=$(basename "$file" | sed -n 's/^.*-\(.*\)-squashfs-.*\.bin$/\1/p')
@@ -508,10 +537,15 @@ jobs:
                 NEW_NAME="${{ env.REPO_SHORT }}-${DEVICE_NAME_FROM_FILE}-${FIRMWARE_TYPE}-${{ matrix.config_type }}.bin"
                 cp "$file" "$FIRMWARE_DIR/$NEW_NAME"
                 echo "处理固件: $(basename "$file") -> $NEW_NAME" >> logs/user-friendly.log
+                FIRMWARE_COUNT=$((FIRMWARE_COUNT + 1))
               fi
             done
+            echo "✅ 产物收集完成，共处理 $FIRMWARE_COUNT 个固件文件" >> logs/user-friendly.log
+            echo "✅ 产物收集完成，共处理 $FIRMWARE_COUNT 个固件文件"
+          else
+            echo "❌ 警告：目标目录不存在: $TARGET_DIR" >> logs/user-friendly.log
+            echo "❌ 警告：目标目录不存在: $TARGET_DIR"
           fi
-          echo "产物收集完成" >> logs/user-friendly.log
           
       - name: 上传产物
         if: always()
@@ -550,7 +584,7 @@ jobs:
       - name: 准备发布目录
         run: |
           set -e
-          echo "正在准备发布目录..."
+          echo "🔄 准备发布目录..."
           mkdir -p release/{config,log,app,firmware,assets}
           
           # 收集配置文件
@@ -652,7 +686,8 @@ jobs:
           作者: ${{ env.AUTHOR }}
           发布时间: ${{ env.RELEASE_DATE }}
           EOF
-          echo "发布目录准备完成"
+          echo "✅ 发布目录准备完成"
+          echo "✅ 发布目录准备完成"
           
       - name: 创建Release并上传文件
         uses: softprops/action-gh-release@v1
