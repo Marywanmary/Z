@@ -179,9 +179,9 @@ jobs:
           cat $GITHUB_WORKSPACE/configs/${{ matrix.config }}.config >> .config
           
           # 执行自定义脚本
-          cp -f $GITHUB_WORKSPACE/scripts/script.sh $OPENWRT_ROOT/script.sh
-          chmod +x $OPENWRT_ROOT/script.sh
-          cd $OPENWRT_ROOT && ./script.sh
+          cp -f $GITHUB_WORKSPACE/scripts/scriptT.sh $OPENWRT_ROOT/scriptT.sh
+          chmod +x $OPENWRT_ROOT/scriptT.sh
+          cd $OPENWRT_ROOT && ./scriptT.sh
           
           # 生成最终配置
           make defconfig
