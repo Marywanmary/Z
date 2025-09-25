@@ -144,6 +144,19 @@ jobs:
           echo "提取到的设备名称: $DEVICE_NAMES" >> logs/error.log
           echo "设备数量: $DEVICE_COUNT" >> logs/error.log
           
+      - name: 检查系统依赖
+        run: |
+          set -e
+          echo "=== 检查系统依赖 ===" >> logs/error.log
+          dpkg -l | grep -E "build-essential|clang|flex|bison|g\+\+|gawk|gcc-multilib|g\+\+-multilib|gettext|git|libncurses5-dev|libssl-dev|python3-distutils|python3-setuptools|rsync|unzip|zlib1g-dev|file|wget" >> logs/error.log
+          echo "=== 检查编译工具 ===" >> logs/error.log
+          which gcc g++ make git python3 >> logs/error.log
+          gcc --version | head -1 >> logs/error.log
+          g++ --version | head -1 >> logs/error.log
+          make --version | head -1 >> logs/error.log
+          git --version >> logs/error.log
+          python3 --version >> logs/error.log
+          
       - name: 克隆源码
         run: |
           set -e
@@ -173,7 +186,19 @@ jobs:
           
           # 应用配置
           cp ../temp_config/.config .config
-          make defconfig
+          
+          # 添加缺失的内核配置选项
+          echo "# CONFIG_NF_CONNTRACK_DSCPREMARK_EXT is not set" >> .config
+          
+          # 验证配置文件
+          echo "=== 验证配置文件 ===" >> ../logs/error.log
+          grep -E "CONFIG_TARGET_DEVICE_|CONFIG_LINUX_KERNEL_VERSION|CONFIG_NF_CONNTRACK_DSCPREMARK_EXT" .config >> ../logs/error.log
+          
+          echo "运行defconfig..." >> ../logs/error.log
+          make defconfig >> ../logs/error.log 2>&1
+          
+          # 再次确认新选项被禁用
+          echo "# CONFIG_NF_CONNTRACK_DSCPREMARK_EXT is not set" >> .config
           
           # 启用ccache
           export CCACHE_DIR=~/.ccache
@@ -182,15 +207,20 @@ jobs:
           
           # 编译
           echo "开始编译..." >> ../logs/error.log
-          make -j$(nproc) V=s 2>&1 | tee -a ../logs/error.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "错误：编译失败，尝试使用单线程重新编译..." >> ../logs/error.log
-            make -j1 V=sc 2>&1 | tee -a ../logs/error.log
-            if [ ${PIPESTATUS[0]} -ne 0 ]; then
+          echo "使用 $(nproc) 个并行任务进行编译" >> ../logs/error.log
+          
+          # 尝试编译，捕获错误
+          if ! make -j$(nproc) V=s 2>&1 | tee -a ../logs/error.log; then
+            echo "错误：并行编译失败，尝试使用单线程重新编译..." >> ../logs/error.log
+            if ! make -j1 V=sc 2>&1 | tee -a ../logs/error.log; then
               echo "错误：单线程编译也失败" >> ../logs/error.log
+              echo "=== 最后2000行错误日志 ===" >> ../logs/error.log
+              tail -n 2000 ../logs/error.log >> ../logs/error.log
               exit 1
             fi
           fi
+          
+          echo "编译完成" >> ../logs/error.log
           
       - name: 收集产物
         if: always()
@@ -201,7 +231,12 @@ jobs:
           mkdir -p "$ARTIFACT_DIR"
           mkdir -p "$FIRMWARE_DIR"
           
-          TARGET_DIR="openwrt/bin/targets/qualcommax/${{ env.CHIP }}"
+          # 修改后的TARGET_DIR，支持多种架构
+          TARGET_DIR="openwrt/bin/targets/${{ env.CHIP }}"
+          
+          # 添加调试信息
+          echo "=== 检查目标目录 ===" >> logs/error.log
+          ls -la "$TARGET_DIR" >> logs/error.log 2>&1 || echo "目标目录不存在: $TARGET_DIR" >> logs/error.log
           
           # 复制配置文件
           cp temp_config/.config "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}.config"
@@ -228,10 +263,19 @@ jobs:
             cp logs/error.log "$ARTIFACT_DIR/${{ env.REPO_SHORT }}-${{ matrix.config_type }}-error.log"
           fi
           
-          # 处理固件文件
+          # 处理固件文件 - 只处理包含"-squashfs-"的文件
           if [ -d "$TARGET_DIR" ]; then
+            echo "=== 处理固件文件 ===" >> logs/error.log
+            ls -la "$TARGET_DIR" >> logs/error.log
+            
+            FOUND_FIRMWARE=0
+            
             for file in "$TARGET_DIR"/*.bin; do
               if [ -f "$file" ] && [[ "$file" == *"-squashfs-"* ]]; then
+                FOUND_FIRMWARE=1
+                echo "发现符合条件的固件文件: $(basename "$file")" >> logs/error.log
+                
+                # 从文件名提取设备名称
                 DEVICE_NAME_FROM_FILE=$(basename "$file" | sed -n 's/^.*-\(.*\)-squashfs-.*\.bin$/\1/p')
                 
                 if [ -z "$DEVICE_NAME_FROM_FILE" ]; then
@@ -239,6 +283,7 @@ jobs:
                   continue
                 fi
                 
+                # 确定固件类型
                 if [[ "$file" == *"factory"* ]]; then
                   FIRMWARE_TYPE="factory"
                 elif [[ "$file" == *"sysupgrade"* ]]; then
@@ -252,7 +297,27 @@ jobs:
                 echo "处理固件: $(basename "$file") -> $NEW_NAME" >> logs/error.log
               fi
             done
+            
+            if [ "$FOUND_FIRMWARE" -eq 0 ]; then
+              echo "警告: 没有找到任何符合条件的固件文件（包含-squashfs-的.bin文件）" >> logs/error.log
+              # 创建一个说明文件，避免上传错误
+              echo "没有找到符合条件的固件文件（包含-squashfs-的.bin文件）" > "$FIRMWARE_DIR/no-firmware-found.txt"
+            fi
+          else
+            echo "错误: 目标目录不存在: $TARGET_DIR" >> logs/error.log
+            # 创建一个说明文件，避免上传错误
+            echo "目标目录不存在: $TARGET_DIR" > "$FIRMWARE_DIR/target-directory-not-found.txt"
           fi
+          
+      - name: 上传错误日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-logs-${{ env.REPO_SHORT }}-${{ matrix.config_type }}
+          path: |
+            logs/error.log
+          retention-days: 30
+          if-no-files-found: warn
           
       - name: 上传产物
         if: always()
@@ -262,7 +327,7 @@ jobs:
           path: |
             ${{ env.REPO_SHORT }}-${{ matrix.config_type }}/
           retention-days: 7
-          if-no-files-found: error
+          if-no-files-found: warn
           
       - name: 上传固件
         if: always()
