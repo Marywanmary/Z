@@ -65,14 +65,6 @@ jobs:
             repo_url: https://github.com/laipeng668/immortalwrt.git
             repo_branch: master
             config: Max
-          - branch: openwrt
-            repo_url: https://github.com/laipeng668/openwrt.git
-            repo_branch: master
-            config: Max
-          - branch: libwrt
-            repo_url: https://github.com/laipeng668/openwrt-6.x.git
-            repo_branch: k6.12-nss
-            config: Max
           - branch: immwrt
             repo_url: https://github.com/laipeng668/immortalwrt.git
             repo_branch: master
@@ -80,7 +72,15 @@ jobs:
           - branch: openwrt
             repo_url: https://github.com/laipeng668/openwrt.git
             repo_branch: master
+            config: Max
+          - branch: openwrt
+            repo_url: https://github.com/laipeng668/openwrt.git
+            repo_branch: master
             config: Pro
+          - branch: libwrt
+            repo_url: https://github.com/laipeng668/openwrt-6.x.git
+            repo_branch: k6.12-nss
+            config: Max
           - branch: libwrt
             repo_url: https://github.com/laipeng668/openwrt-6.x.git
             repo_branch: k6.12-nss
@@ -110,13 +110,14 @@ jobs:
         run: |
           echo "============== 开始初始化编译环境 =============="
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/laipeng668/Actions-OpenWrt/main/depends-ubuntu-2204)
+          sudo -E apt-get -y update
+          sudo -E apt-get -y install $(curl -fsSL is.gd/depends_ubuntu_2204)
+          sudo -E systemctl daemon-reload
+          sudo timedatectl set-timezone "$TZ"
           # 明确安装ccache
           sudo -E apt-get -qq install ccache
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
-          sudo timedatectl set-timezone "$TZ"
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
           echo "============== 编译环境初始化完成 =============="
@@ -213,29 +214,15 @@ jobs:
           # 生成最终配置
           make defconfig
           
-          # 提取设备名称并修正格式问题
-          # 修复：使用更健壮的正则表达式，避免匹配到错误的设备
-          DEVICE_NAMES=$(grep -oP 'CONFIG_TARGET_DEVICE_ipq60xx_\w+_DEVICE_\w+(?=\=y)' .config | sed 's/CONFIG_TARGET_DEVICE_ipq60xx_\w+_DEVICE_//g' | tr '\n' ' ' | xargs)
-          if [ -n "$DEVICE_NAMES" ]; then
-            # 保留所有设备名称，用于环境变量和日志
-            echo "DEVICE_NAMES=${DEVICE_NAMES}" >> $GITHUB_ENV
-            echo "检测到设备: ${DEVICE_NAMES}"
-            
-            # 添加设备名称到配置文件，确保格式正确
-            for DEVICE in $DEVICE_NAMES; do
-              echo "CONFIG_TARGET_DEVICE_ipq60xx_DEVICE_${DEVICE}=y" >> .config
-            done
-          else
-            echo "未检测到设备，使用默认设备"
-            echo "CONFIG_TARGET_DEVICE_ipq60xx_DEVICE_jdcloud_re-cs-02=y" >> .config
-            echo "DEVICE_NAMES=jdcloud_re-cs-02" >> $GITHUB_ENV
-            echo "检测到设备: jdcloud_re-cs-02 (默认)"
-          fi
+          # 显示配置文件前200行
+          echo "============== 配置文件内容（前200行） =============="
+          head -n 200 .config
+          echo "============== 配置文件内容显示完成 =============="
           
           # 获取内核版本
-          KERNEL_VERSION=$(grep -oP 'KERNEL_PATCHVER=\K\d+\.\d+' target/linux/${{ env.CHIP }}/Makefile || echo "5.15")
-          echo "KERNEL_VERSION=${KERNEL_VERSION}" >> $GITHUB_ENV
-          echo "内核版本: ${KERNEL_VERSION}"
+          VERSION_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' target/linux/generic/kernel-6.12)
+          echo "VERSION_KERNEL=${VERSION_KERNEL}" >> $GITHUB_ENV
+          echo "内核版本: ${VERSION_KERNEL}"
           
           echo "============== 自定义配置加载完成 =============="
 
@@ -363,7 +350,7 @@ jobs:
           
           # 复制并处理固件
           bash $GITHUB_WORKSPACE/scripts/build.sh process_artifacts \
-            ${{ matrix.branch }} ${{ env.CHIP }} "${{ env.DEVICE_NAMES }}" ${{ matrix.config }}
+            ${{ matrix.branch }} ${{ env.CHIP }} ${{ matrix.config }}
           
           echo "============== 编译产物处理完成 =============="
 
@@ -474,7 +461,7 @@ jobs:
             
             ### 设备支持
             - 固件包括 ${{ env.CHIP }} 的京东云亚瑟、雅典娜
-            - 固件内核版本：${{ env.KERNEL_VERSION }}
+            - 固件内核版本：${{ env.VERSION_KERNEL }}
             
             ### 编译信息
             - 作者: Mary
