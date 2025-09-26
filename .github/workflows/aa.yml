@@ -235,6 +235,11 @@ jobs:
         with:
           path: all_artifacts
 
+      - name: 生成日期标签
+        id: generate-date
+        run: |
+          echo "date_tag=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+
       - name: 准备发布
         run: |
           echo -e "\033[1;36m======= 准备发布 =======\033[0m"
@@ -277,7 +282,7 @@ jobs:
       - name: 创建发布
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ format('{0}-{1}', format('{0}{1}{2}', date('%Y'), date('%m'), date('%d')), env.CHIPSET) }}
+          tag_name: ${{ steps.generate-date.outputs.date_tag }}-${{ env.CHIPSET }}
           name: ${{ env.CHIPSET }} 固件发布
           body_path: release_notes.md
           files: release/**
