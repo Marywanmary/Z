@@ -306,10 +306,10 @@ jobs:
             -e "warning:" \
             -e "Warning" \
             -e "WARNING" \
-            -e "CC " \
-            -e "CXX " \
-            -e "LD " \
-            -e "AR " \
+            # -e "CC " \
+            # -e "CXX " \
+            # -e "LD " \
+            # -e "AR " \
             -e "INSTALL" \
             -e "COLLECT_GCOV" \
             -e "Package/.* is missing" \
@@ -347,10 +347,10 @@ jobs:
               -e "warning:" \
               -e "Warning" \
               -e "WARNING" \
-              -e "CC " \
-              -e "CXX " \
-              -e "LD " \
-              -e "AR " \
+              # -e "CC " \
+              # -e "CXX " \
+              # -e "LD " \
+              # -e "AR " \
               -e "INSTALL" \
               -e "COLLECT_GCOV" \
               -e "Package/.* is missing" \
