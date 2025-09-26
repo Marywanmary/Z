@@ -94,10 +94,20 @@ jobs:
           cat configs/${{ env.REPO_SHORT }}_base.config >> config_temp/merged.config
           cat configs/${{ env.CONFIG_TYPE }}.config >> config_temp/merged.config
           
+          # 显示合并后的配置文件前300行
+          echo -e "\033[1;36m======= 合并后的配置文件前300行 =======\033[0m"
+          head -n 300 config_temp/merged.config
+          
           # 提取设备名称并转换为逗号分隔的单行
           devices=$(grep -oP 'CONFIG_TARGET_DEVICE_.*?_DEVICE_\K[^=]+' config_temp/merged.config | sort -u | tr '\n' ',' | sed 's/,$//')
           echo "DEVICES=${devices}" >> $GITHUB_ENV
           echo "编译设备: ${devices//,/ }"
+          
+          # 修复frp包路径问题
+          if grep -q 'CONFIG_PACKAGE_frp' config_temp/merged.config; then
+            echo -e "\033[1;33m======= 修复frp包路径 =======\033[0m"
+            sed -i 's|feeds/packa/fr/net/frp|feeds/packages/net/frp|g' config_temp/merged.config
+          fi
 
       - name: 克隆源码
         run: |
@@ -117,6 +127,13 @@ jobs:
               ;;
           esac
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+
+      - name: 更新feeds
+        run: |
+          echo -e "\033[1;36m======= 更新feeds =======\033[0m"
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
       - name: 执行编译
         run: |
