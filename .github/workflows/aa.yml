@@ -1,4 +1,4 @@
-name: ipq60xx-ChatZ
+name: ipq60xx-AA
 
 on:
   workflow_dispatch:
