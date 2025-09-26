@@ -112,8 +112,6 @@ jobs:
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/laipeng668/Actions-OpenWrt/main/depends-ubuntu-2204)
-          # 明确安装ccache
-          sudo -E apt-get -qq install ccache
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
           sudo timedatectl set-timezone "$TZ"
@@ -197,17 +195,22 @@ jobs:
           echo "CONFIG_PACKAGE_boost=y" >> .config
           echo "CONFIG_PACKAGE_boost-system=y" >> .config
           
-          # 执行自定义脚本
-          cp -f $GITHUB_WORKSPACE/scripts/scriptT.sh $OPENWRT_ROOT/scriptT.sh
-          chmod +x $OPENWRT_ROOT/scriptT.sh
-          cd $OPENWRT_ROOT && ./scriptT.sh
-          
           # 确保ipq60xx目标文件夹的Makefile存在
-          if [ ! -f "target/linux/${{ env.CHIP }}/Makefile" ]; then
+          if [ ! -d "target/linux/${{ env.CHIP }}" ]; then
             mkdir -p target/linux/${{ env.CHIP }}
+          fi
+          
+          if [ ! -f "target/linux/${{ env.CHIP }}/Makefile" ]; then
             echo 'include $(TOPDIR)/rules.mk' > target/linux/${{ env.CHIP }}/Makefile
             echo 'KERNEL_PATCHVER:=5.15' >> target/linux/${{ env.CHIP }}/Makefile
+            echo 'SUBTARGETS:=generic' >> target/linux/${{ env.CHIP }}/Makefile
+            echo 'BOARDNAME:=Qualcomm Atheros IPQ60xx' >> target/linux/${{ env.CHIP }}/Makefile
           fi
+          
+          # 执行自定义脚本
+           cp -f $GITHUB_WORKSPACE/scripts/script.sh $OPENWRT_ROOT/scriptT.sh
+           chmod +x $OPENWRT_ROOT/scriptT.sh
+           cd $OPENWRT_ROOT && ./scriptT.sh
           
           # 生成最终配置
           make defconfig
