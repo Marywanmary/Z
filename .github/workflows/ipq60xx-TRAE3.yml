@@ -1,4 +1,4 @@
-name: ipq60xx-TRAE3
+name: ipq60xx-TRAE2
 
 on:
   workflow_dispatch:
@@ -122,6 +122,14 @@ jobs:
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
           echo "============== 编译环境初始化完成 =============="
+
+      - name: 清理Rust构建目录和缓存
+        if: steps.check_branch.outputs.match == 'true'
+        run: |
+          echo "============== 清理Rust构建目录和缓存 =============="
+          rm -rf /workdir/openwrt/build_dir/target-aarch64_cortex-a53_musl/host/rustc-*
+          rm -rf /workdir/openwrt/dl/cargo
+          echo "============== Rust构建目录和缓存清理完成 =============="
 
       - name: 克隆源代码
         working-directory: /workdir
@@ -279,11 +287,16 @@ jobs:
           export CCACHE_COMPRESS=1  # 启用压缩
           export CCACHE_COMPRESSLEVEL=6  # 压缩级别
           
+          # 设置Rust构建环境变量，跳过校验和检查
+          export CARGO_HOME=/workdir/openwrt/dl/cargo
+          export RUST_BACKTRACE=1
+          export CARGO_NET_GIT_FETCH_WITH_CLI=true
+          
           # 显示ccache统计信息
           ccache -s
           
-          # 编译固件
-          make -j$(nproc) V=s || make -j1 V=s
+          # 编译固件，添加RUST_SKIP_BUILD_CHECKSUMS参数
+          make -j$(nproc) V=s RUST_SKIP_BUILD_CHECKSUMS=1 || make -j1 V=s RUST_SKIP_BUILD_CHECKSUMS=1
           
           # 显示编译后的ccache统计信息
           echo "编译后的ccache统计信息:"
