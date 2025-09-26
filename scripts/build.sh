@@ -128,7 +128,7 @@ process_artifacts() {
     fi
     
     # 创建编译摘要
-    create_build_summary "${branch}" "${chip}" "${config}" "${logs_dir}/${branch}-${chip}-${config}-summary.log"
+    create_build_summary "${branch}" "${chip}" "${config}" "${device_names}" "${logs_dir}/${branch}-${chip}-${config}-summary.log"
     
     # 处理软件包
     log_info "处理软件包..."
@@ -152,7 +152,8 @@ create_build_summary() {
     local branch=$1
     local chip=$2
     local config=$3
-    local output_file=$4
+    local device_names=$4
+    local output_file=$5
     
     log_info "创建编译摘要: ${output_file}"
     
@@ -164,11 +165,17 @@ create_build_summary() {
         echo ""
         
         echo "内核版本:"
-        grep -oP 'KERNEL_PATCHVER=\K\d+\.\d+' "/workdir/openwrt/target/linux/${chip}/Makefile" || echo "未知"
+        if [ -f "target/linux/generic/kernel-6.12" ]; then
+            grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' target/linux/generic/kernel-6.12 || echo "未知"
+        else
+            echo "6.12"
+        fi
         echo ""
         
         echo "设备列表:"
-        grep -oP 'CONFIG_TARGET_DEVICE_\w+_\w+_DEVICE_\w+_\w+\S+(?=\=y)' "/workdir/openwrt/.config" | sed 's/CONFIG_TARGET_DEVICE_.*_DEVICE_//g' || echo "未找到设备"
+        for device in ${device_names}; do
+            echo "- ${device}"
+        done
         echo ""
         
         echo "软件包列表:"
