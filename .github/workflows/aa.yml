@@ -1,4 +1,4 @@
-name: ipq60xx-AA
+name: ipq60xx-ChatZ
 
 on:
   workflow_dispatch:
@@ -25,10 +25,21 @@ jobs:
       - name: 设置编译矩阵
         id: set-matrix
         run: |
-          matrix=$(jq -n \
-            --arg branches '["immwrt", "openwrt", "libwrt"]' \
-            --arg configs '["Ultra", "Max", "Pro"]' \
-            '{include: ($branches | split(",")[] as $branch | $configs | split(",")[] as $config | {branch: $branch, config: $config})}')
+          # 生成正确的矩阵JSON格式
+          matrix=$(jq -c -n '
+            {
+              "include": [
+                {"branch": "immwrt", "config": "Ultra"},
+                {"branch": "immwrt", "config": "Max"},
+                {"branch": "immwrt", "config": "Pro"},
+                {"branch": "openwrt", "config": "Ultra"},
+                {"branch": "openwrt", "config": "Max"},
+                {"branch": "openwrt", "config": "Pro"},
+                {"branch": "libwrt", "config": "Ultra"},
+                {"branch": "libwrt", "config": "Max"},
+                {"branch": "libwrt", "config": "Pro"}
+              ]
+            }')
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
 
   build:
@@ -146,7 +157,14 @@ jobs:
         run: |
           echo -e "\033[1;36m======= 准备发布 =======\033[0m"
           mkdir -p release
-          cp -r all_artifacts/*/* release/
+          
+          # 遍历所有artifacts并复制文件
+          for artifact_dir in all_artifacts/*; do
+            if [ -d "$artifact_dir" ]; then
+              echo "处理artifact: $(basename "$artifact_dir")"
+              cp -r "$artifact_dir"/* release/ 2>/dev/null || true
+            fi
+          done
           
           # 生成发布说明
           cat > release_notes.md << EOF
@@ -159,12 +177,12 @@ jobs:
           ## 固件信息
           - 芯片架构: ${{ env.CHIPSET }}
           - 设备型号: 京东云亚瑟、雅典娜
-          - 内核版本: $(tar -tf release/${{ env.CHIPSET }}-config.tar.gz | grep '\.config$' | head -1 | xargs -I {} tar -xO release/${{ env.CHIPSET }}-config.tar.gz {} | grep -oP 'CONFIG_KERNEL_VERSION="\K[^"]+' | head -1)
+          - 内核版本: $(find release -name "*.config" | head -1 | xargs grep -oP 'CONFIG_KERNEL_VERSION="\K[^"]+' | head -1)
           - 作者: Mary
           - 发布时间: $(date +'%Y-%m-%d %H:%M:%S')
           
           ## luci-app列表
-          $(tar -tf release/${{ env.CHIPSET }}-config.tar.gz | grep '\.config$' | xargs -I {} tar -xO release/${{ env.CHIPSET }}-config.tar.gz {} | grep 'CONFIG_PACKAGE_luci-app-' | sed 's/CONFIG_PACKAGE_\(.*\)=y/\1/')
+          $(find release -name "*.config" | head -1 | xargs grep 'CONFIG_PACKAGE_luci-app-' | sed 's/CONFIG_PACKAGE_\(.*\)=y/\1/')
           EOF
 
       - name: 创建发布
