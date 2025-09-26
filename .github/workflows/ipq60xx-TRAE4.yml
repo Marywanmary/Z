@@ -196,8 +196,16 @@ jobs:
           cat $GITHUB_WORKSPACE/configs/${{ matrix.config }}.config >> .config
           
           # 添加boost-system包
-          echo "CONFIG_PACKAGE_boost=y" >> .config
-          echo "CONFIG_PACKAGE_boost-system=y" >> .config
+          # echo "CONFIG_PACKAGE_boost=y" >> .config
+          # echo "CONFIG_PACKAGE_boost-system=y" >> .config
+          
+          # 禁用Rust相关选项
+          # echo "# CONFIG_RUST is not set" >> .config
+          # echo "# CONFIG_PACKAGE_rust is not set" >> .config
+          # echo "# CONFIG_PACKAGE_rust-src is not set" >> .config
+          # echo "# CONFIG_PACKAGE_rustc is not set" >> .config
+          # echo "# CONFIG_PACKAGE_cargo is not set" >> .config
+          # echo "# CONFIG_PACKAGE_rust-std is not set" >> .config
           
           # 执行自定义脚本
           cp -f $GITHUB_WORKSPACE/scripts/scriptT.sh $OPENWRT_ROOT/scriptT.sh
@@ -229,6 +237,37 @@ jobs:
           echo "内核版本: ${VERSION_KERNEL}"
           
           echo "============== 自定义配置加载完成 =============="
+
+      # - name: 禁用Rust包编译
+      #   run: |
+      #     echo "============== 禁用Rust包编译 =============="
+      #     cd $OPENWRT_ROOT
+          
+      #     # 检查是否有Rust相关的包被选中
+      #     if grep -q "CONFIG_RUST=y" .config || grep -q "CONFIG_PACKAGE_rust=y" .config; then
+      #       echo "检测到Rust相关选项被启用，正在禁用..."
+      #       sed -i 's/CONFIG_RUST=y/# CONFIG_RUST is not set/g' .config
+      #       sed -i 's/CONFIG_PACKAGE_rust=y/# CONFIG_PACKAGE_rust is not set/g' .config
+      #       sed -i 's/CONFIG_PACKAGE_rust-src=y/# CONFIG_PACKAGE_rust-src is not set/g' .config
+      #       sed -i 's/CONFIG_PACKAGE_rustc=y/# CONFIG_PACKAGE_rustc is not set/g' .config
+      #       sed -i 's/CONFIG_PACKAGE_cargo=y/# CONFIG_PACKAGE_cargo is not set/g' .config
+      #       sed -i 's/CONFIG_PACKAGE_rust-std=y/# CONFIG_PACKAGE_rust-std is not set/g' .config
+      #       # 重新生成配置
+      #       make defconfig
+      #       echo "已禁用Rust相关选项"
+      #     else
+      #       echo "未检测到启用的Rust相关选项"
+      #     fi
+          
+      #     # 重命名Rust包的Makefile，使其不会被编译
+      #     if [ -f "feeds/packages/lang/rust/Makefile" ]; then
+      #       mv feeds/packages/lang/rust/Makefile feeds/packages/lang/rust/Makefile.bak
+      #       echo "已重命名Rust包Makefile，禁用编译"
+      #     else
+      #       echo "Rust包Makefile不存在，无需禁用"
+      #     fi
+          
+      #     echo "============== 禁用Rust包编译完成 =============="
 
       # 修复：将ccache和构建目录缓存恢复移到配置加载之后，因为需要.config文件
       - name: 恢复ccache缓存
@@ -289,6 +328,9 @@ jobs:
           export CCACHE_COMPRESS=1  # 启用压缩
           export CCACHE_COMPRESSLEVEL=6  # 压缩级别
           
+          # 设置环境变量，跳过Rust包的编译
+          export IGNORE_PACKAGES="rust rustc cargo rust-std rust-src"
+          
           # 显示ccache统计信息
           echo -e "\n\033[1;36m===== CCACHE 统计信息 =====\033[0m"
           ccache -s
@@ -306,10 +348,10 @@ jobs:
             -e "warning:" \
             -e "Warning" \
             -e "WARNING" \
-            # -e "CC " \
-            # -e "CXX " \
-            # -e "LD " \
-            # -e "AR " \
+            -e "CC " \
+            -e "CXX " \
+            -e "LD " \
+            -e "AR " \
             -e "INSTALL" \
             -e "COLLECT_GCOV" \
             -e "Package/.* is missing" \
@@ -347,10 +389,10 @@ jobs:
               -e "warning:" \
               -e "Warning" \
               -e "WARNING" \
-              # -e "CC " \
-              # -e "CXX " \
-              # -e "LD " \
-              # -e "AR " \
+              -e "CC " \
+              -e "CXX " \
+              -e "LD " \
+              -e "AR " \
               -e "INSTALL" \
               -e "COLLECT_GCOV" \
               -e "Package/.* is missing" \
@@ -444,9 +486,22 @@ jobs:
           mkdir -p /tmp/artifact/logs
           mkdir -p /tmp/artifact/packages
           
-          # 复制并处理固件
-          bash $GITHUB_WORKSPACE/scripts/build.sh process_artifacts \
-            ${{ matrix.branch }} ${{ env.CHIP }} ${{ matrix.config }}
+          # 获取设备名称（从.config文件中提取，使用芯片变量）
+          DEVICE_NAMES=$(grep -oP "CONFIG_TARGET_DEVICE_${{ env.CHIP }}_DEVICE_\w+(?=\=y)" .config | sed "s/CONFIG_TARGET_DEVICE_${{ env.CHIP }}_DEVICE_//g" | tr '\n' ' ' | xargs)
+          
+          # 检查是否提取到设备名称
+          if [ -z "$DEVICE_NAMES" ]; then
+            echo "未检测到设备名称，跳过重命名步骤"
+            # 直接复制所有固件文件，不进行重命名
+            if [ -d "bin/targets" ]; then
+              find bin/targets -name "*.bin" -exec cp {} /tmp/artifact/firmware/ \;
+            fi
+          else
+            echo "检测到设备: $DEVICE_NAMES"
+            # 复制并处理固件
+            bash $GITHUB_WORKSPACE/scripts/build.sh process_artifacts \
+              ${{ matrix.branch }} ${{ env.CHIP }} "$DEVICE_NAMES" ${{ matrix.config }}
+          fi
           
           echo "============== 编译产物处理完成 =============="
 
