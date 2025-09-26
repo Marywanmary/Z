@@ -173,9 +173,13 @@ create_build_summary() {
         echo ""
         
         echo "设备列表:"
-        for device in ${device_names}; do
-            echo "- ${device}"
-        done
+        if [ -n "$device_names" ]; then
+            for device in ${device_names}; do
+                echo "- ${device}"
+            done
+        else
+            echo "未检测到设备"
+        fi
         echo ""
         
         echo "软件包列表:"
