@@ -111,13 +111,38 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           echo "============== 开始初始化编译环境 =============="
+    
+          # 清理不必要的软件包和目录
           sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+    
+          # 更新包列表
           sudo -E apt-get -qq update
-          sudo -E apt-get -qq install $(curl -fsSL https://raw.githubusercontent.com/laipeng668/Actions-OpenWrt/main/depends-ubuntu-2204)
-          # 明确安装ccache
-          sudo -E apt-get -qq install ccache
+    
+          # 尝试从外部URL获取依赖列表，如果失败则使用内置列表
+          echo "尝试获取依赖列表..."
+          if DEPENDENCIES=$(curl -fsSL is.gd/depends_ubuntu_2204 2>/dev/null); then
+            echo "使用从网络获取的依赖列表"
+          else
+            echo "网络获取失败，使用内置依赖列表"
+            DEPENDENCIES="ack antlr3 aria2 asciidoc autoconf automake autopoint binutils bison btrfs-progs \
+            build-essential bzip2 ca-certificates ccache cmake coreutils cpio curl device-tree-compiler \
+            fastjar flex g++-multilib gawk gcc-multilib gettext git git-core gperf gzip haveged help2man \
+            intltool jq libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev \
+            libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev \
+            libtool libz-dev lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pigz pkgconf \
+            python2.7 python3 python3-pip python3-pyelftools python3-setuptools qemu-utils rsync scons \
+            squashfs-tools swig tar texinfo uglifyjs unzip upx upx-ucl vim wget xmlto xsltproc xxd xz-utils \
+            yasm zip zlib1g-dev zstd"
+          fi
+    
+          # 安装依赖
+          echo "安装编译依赖..."
+          sudo -E apt-get -qq install $DEPENDENCIES
+    
+          # 清理和设置
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
+          sudo -E systemctl daemon-reload
           sudo timedatectl set-timezone "$TZ"
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
