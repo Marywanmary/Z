@@ -1,4 +1,4 @@
-name: ipq60xx-TRAE2
+name: ipq60xx-TRAE5
 
 on:
   workflow_dispatch:
