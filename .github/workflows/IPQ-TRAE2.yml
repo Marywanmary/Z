@@ -65,6 +65,14 @@ jobs:
             repo_url: https://github.com/laipeng668/immortalwrt.git
             repo_branch: master
             config: Max
+          - branch: openwrt
+            repo_url: https://github.com/laipeng668/openwrt.git
+            repo_branch: master
+            config: Max
+          - branch: libwrt
+            repo_url: https://github.com/laipeng668/openwrt-6.x.git
+            repo_branch: k6.12-nss
+            config: Max
           - branch: immwrt
             repo_url: https://github.com/laipeng668/immortalwrt.git
             repo_branch: master
@@ -72,15 +80,7 @@ jobs:
           - branch: openwrt
             repo_url: https://github.com/laipeng668/openwrt.git
             repo_branch: master
-            config: Max
-          - branch: openwrt
-            repo_url: https://github.com/laipeng668/openwrt.git
-            repo_branch: master
             config: Pro
-          - branch: libwrt
-            repo_url: https://github.com/laipeng668/openwrt-6.x.git
-            repo_branch: k6.12-nss
-            config: Max
           - branch: libwrt
             repo_url: https://github.com/laipeng668/openwrt-6.x.git
             repo_branch: k6.12-nss
