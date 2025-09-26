@@ -12,6 +12,14 @@ on:
         - ipq60xx
         - ipq80xx
         - mtk
+      ubuntu_version:
+        description: 'Ubuntu版本'
+        required: true
+        default: '22.04'
+        type: choice
+        options:
+        - 22.04
+        - 24.04
 
 env:
   TZ: Asia/Shanghai
@@ -25,18 +33,18 @@ jobs:
       - name: 设置编译矩阵
         id: set-matrix
         run: |
-          # 生成正确的矩阵JSON格式
+          # 生成正确的矩阵JSON格式，将Ultra配置排在前面
           matrix=$(jq -c -n '
             {
               "include": [
                 {"branch": "immwrt", "config": "Ultra"},
-                {"branch": "immwrt", "config": "Max"},
-                {"branch": "immwrt", "config": "Pro"},
                 {"branch": "openwrt", "config": "Ultra"},
-                {"branch": "openwrt", "config": "Max"},
-                {"branch": "openwrt", "config": "Pro"},
                 {"branch": "libwrt", "config": "Ultra"},
+                {"branch": "immwrt", "config": "Max"},
+                {"branch": "openwrt", "config": "Max"},
                 {"branch": "libwrt", "config": "Max"},
+                {"branch": "immwrt", "config": "Pro"},
+                {"branch": "openwrt", "config": "Pro"},
                 {"branch": "libwrt", "config": "Pro"}
               ]
             }')
@@ -44,10 +52,11 @@ jobs:
 
   build:
     needs: prepare
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-${{ github.event.inputs.ubuntu_version }}
     strategy:
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
       fail-fast: false
+      max-parallel: 3
     env:
       REPO_SHORT: ${{ matrix.branch }}
       CONFIG_TYPE: ${{ matrix.config }}
@@ -66,6 +75,7 @@ jobs:
           python3-distutils rsync unzip zlib1g-dev file wget time ccache
 
       - name: 恢复工具链缓存
+        id: restore-toolchain-cache
         uses: actions/cache@v4
         with:
           path: |
@@ -75,7 +85,15 @@ jobs:
           restore-keys: |
             ${{ env.CHIPSET }}-toolchain-
 
+      - name: 显示工具链缓存信息
+        if: steps.restore-toolchain-cache.outputs.cache-hit == 'true'
+        run: |
+          echo -e "\033[1;32m======= 工具链缓存命中 =======\033[0m"
+          echo "缓存大小: $(du -sh ~/.ccache | cut -f1)"
+          echo "缓存文件数量: $(find ~/.ccache -type f | wc -l)"
+
       - name: 恢复依赖包缓存
+        id: restore-deps-cache
         uses: actions/cache@v4
         with:
           path: |
@@ -85,6 +103,13 @@ jobs:
           restore-keys: |
             ${{ env.CHIPSET }}-${{ env.REPO_SHORT }}-deps-
             ${{ env.CHIPSET }}-deps-
+
+      - name: 显示依赖包缓存信息
+        if: steps.restore-deps-cache.outputs.cache-hit == 'true'
+        run: |
+          echo -e "\033[1;32m======= 依赖包缓存命中 =======\033[0m"
+          echo "缓存大小: $(du -sh dl feeds 2>/dev/null | awk '{sum+=$1} END {print sum}' | numfmt --to=iec)"
+          echo "缓存文件数量: $(find dl feeds -type f 2>/dev/null | wc -l)"
 
       - name: 合并配置文件
         run: |
@@ -149,6 +174,7 @@ jobs:
           fi
 
       - name: 保存工具链缓存
+        id: save-toolchain-cache
         uses: actions/cache@v4
         with:
           path: |
@@ -156,13 +182,28 @@ jobs:
             build_dir/toolchain-*
           key: ${{ env.CHIPSET }}-toolchain-${{ hashFiles('configs/*.config') }}
 
+      - name: 显示工具链缓存保存信息
+        if: steps.save-toolchain-cache.outputs.cache-hit != 'true'
+        run: |
+          echo -e "\033[1;32m======= 工具链缓存已保存 =======\033[0m"
+          echo "缓存大小: $(du -sh ~/.ccache | cut -f1)"
+          echo "缓存文件数量: $(find ~/.ccache -type f | wc -l)"
+
       - name: 保存依赖包缓存
+        id: save-deps-cache
         uses: actions/cache@v4
         with:
           path: |
             dl
             feeds
           key: ${{ env.CHIPSET }}-${{ env.REPO_SHORT }}-deps-${{ hashFiles('configs/*.config') }}
+
+      - name: 显示依赖包缓存保存信息
+        if: steps.save-deps-cache.outputs.cache-hit != 'true'
+        run: |
+          echo -e "\033[1;32m======= 依赖包缓存已保存 =======\033[0m"
+          echo "缓存大小: $(du -sh dl feeds 2>/dev/null | awk '{sum+=$1} END {print sum}' | numfmt --to=iec)"
+          echo "缓存文件数量: $(find dl feeds -type f 2>/dev/null | wc -l)"
 
       - name: 准备产出物
         run: |
@@ -181,10 +222,12 @@ jobs:
 
   release:
     needs: build
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-${{ github.event.inputs.ubuntu_version }}
     if: always()
     env:
       CHIPSET: ${{ github.event.inputs.chipset }}
+    permissions:
+      contents: write
     
     steps:
       - name: 下载所有产出物
@@ -204,6 +247,13 @@ jobs:
               cp -r "$artifact_dir"/* release/ 2>/dev/null || true
             fi
           done
+          
+          # 检查release目录是否为空
+          if [ ! "$(ls -A release)" ]; then
+            echo "警告: release目录为空，创建一个README文件"
+            echo "# 编译产物" > release/README.md
+            echo "本次编译没有生成任何产物" >> release/README.md
+          fi
           
           # 生成发布说明
           cat > release_notes.md << EOF
@@ -227,7 +277,7 @@ jobs:
       - name: 创建发布
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: $(date +'%Y%m%d')-${{ env.CHIPSET }}
+          tag_name: ${{ format('{0}-{1}', format('{0}{1}{2}', date('%Y'), date('%m'), date('%d')), env.CHIPSET) }}
           name: ${{ env.CHIPSET }} 固件发布
           body_path: release_notes.md
-          files: release/*
+          files: release/**
