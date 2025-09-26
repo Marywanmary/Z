@@ -1,0 +1,176 @@
+name: ipq60xx-ChatZ
+
+on:
+  workflow_dispatch:
+    inputs:
+      chipset:
+        description: '芯片架构'
+        required: true
+        default: 'ipq60xx'
+        type: choice
+        options:
+        - ipq60xx
+        - ipq80xx
+        - mtk
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: 设置编译矩阵
+        id: set-matrix
+        run: |
+          matrix=$(jq -n \
+            --arg branches '["immwrt", "openwrt", "libwrt"]' \
+            --arg configs '["Ultra", "Max", "Pro"]' \
+            '{include: ($branches | split(",")[] as $branch | $configs | split(",")[] as $config | {branch: $branch, config: $config})}')
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+      fail-fast: false
+    env:
+      REPO_SHORT: ${{ matrix.branch }}
+      CONFIG_TYPE: ${{ matrix.config }}
+      CHIPSET: ${{ github.event.inputs.chipset }}
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 初始化环境
+        run: |
+          echo -e "\033[1;36m======= 初始化编译环境 =======\033[0m"
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+          gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
+          python3-distutils rsync unzip zlib1g-dev file wget time ccache
+
+      - name: 设置缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ccache
+            dl
+            feeds
+            staging_dir
+            build_dir/target-*
+            build_dir/toolchain-*
+          key: ${{ env.CHIPSET }}-${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}-${{ hashFiles('configs/*.config') }}
+          restore-keys: |
+            ${{ env.CHIPSET }}-${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}-
+            ${{ env.CHIPSET }}-${{ env.REPO_SHORT }}-
+
+      - name: 合并配置文件
+        run: |
+          echo -e "\033[1;36m======= 合并配置文件 =======\033[0m"
+          mkdir -p config_temp
+          cat configs/${{ env.CHIPSET }}_base.config > config_temp/merged.config
+          cat configs/${{ env.REPO_SHORT }}_base.config >> config_temp/merged.config
+          cat configs/${{ env.CONFIG_TYPE }}.config >> config_temp/merged.config
+          
+          # 提取设备名称
+          devices=$(grep -oP 'CONFIG_TARGET_DEVICE_.*?_DEVICE_\K[^=]+' config_temp/merged.config | sort -u)
+          echo "DEVICES=${devices}" >> $GITHUB_ENV
+          echo "编译设备: $devices"
+
+      - name: 克隆源码
+        run: |
+          echo -e "\033[1;36m======= 克隆源码 =======\033[0m"
+          case ${{ env.REPO_SHORT }} in
+            immwrt)
+              REPO_URL="https://github.com/laipeng668/immortalwrt.git"
+              REPO_BRANCH="master"
+              ;;
+            openwrt)
+              REPO_URL="https://github.com/laipeng668/openwrt.git"
+              REPO_BRANCH="master"
+              ;;
+            libwrt)
+              REPO_URL="https://github.com/laipeng668/openwrt-6.x.git"
+              REPO_BRANCH="k6.12-nss"
+              ;;
+          esac
+          git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+
+      - name: 执行编译
+        run: |
+          echo -e "\033[1;36m======= 开始编译 =======\033[0m"
+          chmod +x scripts/*.sh
+          ./scripts/build.sh 2>&1 | tee build.log
+          
+          # 检查编译状态
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo -e "\033[1;31m======= 编译失败 =======\033[0m"
+            tail -n 1000 build.log > error.log
+            exit 1
+          fi
+
+      - name: 准备产出物
+        run: |
+          echo -e "\033[1;36m======= 准备产出物 =======\033[0m"
+          mkdir -p artifacts
+          cp -r output/* artifacts/ || true
+          tar -czf artifacts/${{ env.CHIPSET }}-config.tar.gz -C output/configs .
+          tar -czf artifacts/${{ env.CHIPSET }}-log.tar.gz -C output/logs .
+          tar -czf artifacts/${{ env.CHIPSET }}-app.tar.gz -C output/packages .
+
+      - name: 上传产出物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.REPO_SHORT }}-${{ env.CONFIG_TYPE }}-${{ env.CHIPSET }}
+          path: artifacts/
+
+  release:
+    needs: build
+    runs-on: ubuntu-22.04
+    if: always()
+    env:
+      CHIPSET: ${{ github.event.inputs.chipset }}
+    
+    steps:
+      - name: 下载所有产出物
+        uses: actions/download-artifact@v4
+        with:
+          path: all_artifacts
+
+      - name: 准备发布
+        run: |
+          echo -e "\033[1;36m======= 准备发布 =======\033[0m"
+          mkdir -p release
+          cp -r all_artifacts/*/* release/
+          
+          # 生成发布说明
+          cat > release_notes.md << EOF
+          ## 默认信息
+          - 管理地址: 192.168.111.1
+          - 默认用户: root
+          - 默认密码: none
+          - WIFI密码: 12345678
+          
+          ## 固件信息
+          - 芯片架构: ${{ env.CHIPSET }}
+          - 设备型号: 京东云亚瑟、雅典娜
+          - 内核版本: $(tar -tf release/${{ env.CHIPSET }}-config.tar.gz | grep '\.config$' | head -1 | xargs -I {} tar -xO release/${{ env.CHIPSET }}-config.tar.gz {} | grep -oP 'CONFIG_KERNEL_VERSION="\K[^"]+' | head -1)
+          - 作者: Mary
+          - 发布时间: $(date +'%Y-%m-%d %H:%M:%S')
+          
+          ## luci-app列表
+          $(tar -tf release/${{ env.CHIPSET }}-config.tar.gz | grep '\.config$' | xargs -I {} tar -xO release/${{ env.CHIPSET }}-config.tar.gz {} | grep 'CONFIG_PACKAGE_luci-app-' | sed 's/CONFIG_PACKAGE_\(.*\)=y/\1/')
+          EOF
+
+      - name: 创建发布
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: $(date +'%Y%m%d')-${{ env.CHIPSET }}
+          name: ${{ env.CHIPSET }} 固件发布
+          body_path: release_notes.md
+          files: release/*
