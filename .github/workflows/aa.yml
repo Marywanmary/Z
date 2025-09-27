@@ -159,6 +159,16 @@ jobs:
             echo -e "\033[1;33m======= 修复frp包路径 =======\033[0m"
             sed -i 's|feeds/packa/fr/net/frp|feeds/packages/net/frp|g' config_temp/merged.config
           fi
+
+          # 清理配置文件
+          echo -e "\033[1;33m======= 最终清理配置文件 =======\033[0m"
+          # 移除所有注释行
+          sed -i '/^#/d' config_temp/merged.config
+          # 移除空行
+          sed -i '/^$/d' config_temp/merged.config
+          # 确保所有配置行格式正确
+          sed -i '/^CONFIG_[A-Za-z0-9_]*=[ynm]$/!d' config_temp/merged.config
+          sed -i '/^CONFIG_[A-Za-z0-9_]*="[^"]*"$/!d' config_temp/merged.config
           
           # 显示合并后的配置文件前300行
           echo -e "\033[1;36m======= 合并后的配置文件前300行 =======\033[0m"
@@ -202,9 +212,9 @@ jobs:
           cd openwrt
           
           # 使用make oldconfig自动清理配置文件
-          echo -e "\033[1;36m======= 使用make oldconfig清理配置文件 =======\033[0m"
-          yes '' | make oldconfig
-          
+          #echo -e "\033[1;36m======= 使用make oldconfig清理配置文件 =======\033[0m"
+          #yes '' | make oldconfig
+
           # 验证配置文件格式
           echo -e "\033[1;36m======= 验证配置文件 =======\033[0m"
           if ! make defconfig > /dev/null 2>&1; then
