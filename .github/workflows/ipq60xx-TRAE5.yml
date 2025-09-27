@@ -215,16 +215,16 @@ jobs:
           cat $GITHUB_WORKSPACE/configs/${{ env.CHIP }}_base.config >> .config
           
           # 添加boost-system包
-          # echo "CONFIG_PACKAGE_boost=y" >> .config
-          # echo "CONFIG_PACKAGE_boost-system=y" >> .config
+          echo "CONFIG_PACKAGE_boost=y" >> .config
+          echo "CONFIG_PACKAGE_boost-system=y" >> .config
           
           # 禁用Rust相关选项
-          # echo "# CONFIG_RUST is not set" >> .config
-          # echo "# CONFIG_PACKAGE_rust is not set" >> .config
-          # echo "# CONFIG_PACKAGE_rust-src is not set" >> .config
-          # echo "# CONFIG_PACKAGE_rustc is not set" >> .config
-          # echo "# CONFIG_PACKAGE_cargo is not set" >> .config
-          # echo "# CONFIG_PACKAGE_rust-std is not set" >> .config
+          echo "# CONFIG_RUST is not set" >> .config
+          echo "# CONFIG_PACKAGE_rust is not set" >> .config
+          echo "# CONFIG_PACKAGE_rust-src is not set" >> .config
+          echo "# CONFIG_PACKAGE_rustc is not set" >> .config
+          echo "# CONFIG_PACKAGE_cargo is not set" >> .config
+          echo "# CONFIG_PACKAGE_rust-std is not set" >> .config
           
           # 执行自定义脚本
           cp -f $GITHUB_WORKSPACE/scripts/scriptT.sh $OPENWRT_ROOT/scriptT.sh
