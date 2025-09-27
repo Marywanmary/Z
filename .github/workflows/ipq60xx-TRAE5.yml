@@ -244,13 +244,17 @@ jobs:
           # else
           #   echo "Makefile已存在: target/linux/${{ env.CHIP }}/Makefile"
           # fi
+
+          # 使用make oldconfig自动清理配置文件
+          echo -e "\033[1;36m======= 使用make oldconfig清理配置文件 =======\033[0m"
+          yes '' | make oldconfig
           
           # 生成最终配置
           make defconfig
           
-          # 显示配置文件前200行
+          # 显示配置文件前300行
           echo "============== 配置文件内容（前200行） =============="
-          head -n 200 .config
+          head -n 300 .config
           echo "============== 配置文件内容显示完成 =============="
           
           # 获取内核版本（使用6.12内核）
