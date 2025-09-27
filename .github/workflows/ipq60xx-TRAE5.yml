@@ -253,12 +253,12 @@ jobs:
           # 移除空行
           sed -i '/^$/d' .config
           # 确保所有配置行格式正确
-          sed -i '/^CONFIG_[A-Za-z0-9_]*=[ynm]$/!d' .config
-          sed -i '/^CONFIG_[A-Za-z0-9_]*="[^"]*"$/!d' .config
+          # sed -i '/^CONFIG_[A-Za-z0-9_]*=[ynm]$/!d' .config
+          # sed -i '/^CONFIG_[A-Za-z0-9_]*="[^"]*"$/!d' .config
 
           # 使用make oldconfig自动清理配置文件
-          echo -e "\033[1;36m======= 使用make oldconfig清理配置文件 =======\033[0m"
-          yes '' | make oldconfig
+          # echo -e "\033[1;36m======= 使用make oldconfig清理配置文件 =======\033[0m"
+          # yes '' | make oldconfig
           
           # 生成最终配置
           make defconfig
