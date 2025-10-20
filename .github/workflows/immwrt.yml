@@ -1,0 +1,48 @@
+name: ImmortalWrt Build
+
+on:
+  schedule:
+    - cron: '0 16 * * 4' # 北京时间周五0点 (UTC+8 = UTC-8)
+  workflow_dispatch:
+    inputs:
+      config_profile:
+        description: '配置选择'
+        required: true
+        default: 'Ultra'
+        type: choice
+        options:
+        - Pro
+        - Max
+        - Ultra
+      ubuntu_version:
+        description: 'Ubuntu版本'
+        required: true
+        default: 'ubuntu-22.04'
+        type: choice
+        options:
+        - ubuntu-22.04
+        - ubuntu-24.04
+
+jobs:
+  build:
+    uses: ./.github/workflows/core-build.yml
+    with:
+      repo_url: https://github.com/openwrt/immwrt.git
+      repo_branch: master
+      repo_short: immwrt
+      soc_name: ipq60xx
+      config_profile: ${{ github.event.inputs.config_profile || 'Ultra' }}
+      ubuntu_version: ${{ github.event.inputs.ubuntu_version || 'ubuntu-22.04' }}
+      manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
+
+  release:
+    needs: build
+    uses: ./.github/workflows/core-release.yml
+    with:
+      repo_short: immwrt
+      soc_name: ipq60xx
+      build_success: ${{ needs.build.outputs.build_success }}
+      kernel_version: ${{ needs.build.outputs.kernel_version }}
+      devices: ${{ needs.build.outputs.devices }}
+      artifacts_hash: ${{ needs.build.outputs.artifacts_hash }}
+      manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
