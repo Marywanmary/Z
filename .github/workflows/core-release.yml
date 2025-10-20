@@ -9,6 +9,9 @@ on:
       soc_name:
         required: true
         type: string
+      config_profile:
+        required: true
+        type: string
       build_success:
         required: true
         type: boolean
@@ -16,6 +19,9 @@ on:
         required: true
         type: string
       devices:
+        required: true
+        type: string
+      luci_packages:
         required: true
         type: string
       artifacts_hash:
@@ -38,38 +44,41 @@ jobs:
       - name: 📥 下载构建产物
         uses: actions/download-artifact@v4
         with:
-          pattern: build-artifacts-${{ inputs.repo_short }}-${{ inputs.soc_name }}-*
+          pattern: build-artifacts-${{ inputs.repo_short }}-${{ inputs.soc_name }}-${{ inputs.config_profile }}
           merge-multiple: true
           path: artifacts/
 
       - name: 📦 打包配置文件
         run: |
-          tar -czf ${{ inputs.soc_name }}-config.tar.gz -C artifacts configs/
+          echo -e "\033[36m📦 打包配置文件...\033[0m"
+          tar -czf ${{ inputs.soc_name }}-${{ inputs.repo_short }}-${{ inputs.config_profile }}-config.tar.gz -C artifacts configs/
           
       - name: 📦 打包应用包
         run: |
-          tar -czf ${{ inputs.soc_name }}-app.tar.gz -C artifacts packages/
+          echo -e "\033[36m📦 打包应用包...\033[0m"
+          tar -czf ${{ inputs.soc_name }}-${{ inputs.repo_short }}-${{ inputs.config_profile }}-app.tar.gz -C artifacts packages/
           
       - name: 📦 打包日志
         run: |
-          tar -czf ${{ inputs.soc_name }}-log.tar.gz -C artifacts logs/
+          echo -e "\033[36m📦 打包日志...\033[0m"
+          tar -czf ${{ inputs.soc_name }}-${{ inputs.repo_short }}-${{ inputs.config_profile }}-log.tar.gz -C artifacts logs/
 
       - name: 📝 生成Release内容
         run: |
           chmod +x scripts/generate_release.sh
-          ./scripts/generate_release.sh ${{ inputs.repo_short }} ${{ inputs.soc_name }} "${{ inputs.kernel_version }}" "${{ inputs.devices }}" > release_body.md
+          ./scripts/generate_release.sh ${{ inputs.repo_short }} ${{ inputs.soc_name }} ${{ inputs.config_profile }} "${{ inputs.kernel_version }}" "${{ inputs.devices }}" "${{ inputs.luci_packages }}" > release_body.md
 
       - name: 🚀 创建Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.soc_name }}-$(date +%Y%m%d)
-          name: ${{ inputs.repo_short }}-${{ inputs.soc_name }} 固件发布
+          tag_name: ${{ inputs.repo_short }}-${{ inputs.soc_name }}-${{ inputs.config_profile }}-$(date +%Y%m%d)
+          name: ${{ inputs.repo_short }}-${{ inputs.soc_name }}-${{ inputs.config_profile }} 固件发布
           body_path: release_body.md
           files: |
             artifacts/*.bin
-            ${{ inputs.soc_name }}-config.tar.gz
-            ${{ inputs.soc_name }}-app.tar.gz
-            ${{ inputs.soc_name }}-log.tar.gz
+            ${{ inputs.soc_name }}-${{ inputs.repo_short }}-${{ inputs.config_profile }}-config.tar.gz
+            ${{ inputs.soc_name }}-${{ inputs.repo_short }}-${{ inputs.config_profile }}-app.tar.gz
+            ${{ inputs.soc_name }}-${{ inputs.repo_short }}-${{ inputs.config_profile }}-log.tar.gz
           draft: false
           prerelease: false
         env:
