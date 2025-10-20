@@ -28,14 +28,15 @@ on:
         default: false
 
 jobs:
-  build:
+  # 第一阶段：环境准备和缓存
+  prepare:
     runs-on: ${{ inputs.ubuntu_version }}
     outputs:
-      build_success: ${{ steps.build_outcome.outputs.success }}
-      kernel_version: ${{ steps.kernel_info.outputs.version }}
-      devices: ${{ steps.device_info.outputs.devices }}
-      artifacts_hash: ${{ steps.hash_info.outputs.hash }}
-
+      cache_key: ${{ steps.cache_key.outputs.key }}
+      cache_hit: ${{ steps.cache.outputs.cache-hit }}
+      feeds_hash: ${{ steps.feeds_hash.outputs.hash }}
+      config_hash: ${{ steps.config_hash.outputs.hash }}
+      
     steps:
       - name: 🚀 初始化环境
         uses: actions/checkout@v4
@@ -67,7 +68,32 @@ jobs:
           libxml-parser-perl libgtk2.0-dev libglib2.0-dev libglade2-0-dev \
           libglade2-dev libqt5-dev python3-dev libusb-1.0-0-dev libudev-dev
 
-      - name: 🔄 设置缓存
+      - name: 🔍 生成配置哈希
+        id: config_hash
+        run: |
+          # 生成配置文件的哈希值
+          CONFIG_HASH=$(find configs/ -type f -name "*.config" -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1)
+          echo "hash=$CONFIG_HASH" >> $GITHUB_OUTPUT
+          echo "🔑 配置文件哈希: $CONFIG_HASH"
+
+      - name: 🔍 生成Feeds哈希
+        id: feeds_hash
+        run: |
+          # 生成feeds配置的哈希值
+          FEEDS_HASH=$(cat feeds.conf.default 2>/dev/null || echo "default" | sha256sum | cut -d' ' -f1)
+          echo "hash=$FEEDS_HASH" >> $GITHUB_OUTPUT
+          echo "🔑 Feeds配置哈希: $FEEDS_HASH"
+
+      - name: 🔍 生成缓存键
+        id: cache_key
+        run: |
+          # 生成多级缓存键
+          CACHE_KEY="${{ inputs.repo_short }}-${{ inputs.soc_name }}-${{ inputs.config_profile }}-${{ steps.config_hash.outputs.hash }}-${{ steps.feeds_hash.outputs.hash }}"
+          echo "key=$CACHE_KEY" >> $GITHUB_OUTPUT
+          echo "🔑 缓存键: $CACHE_KEY"
+
+      - name: 📦 设置多级缓存
+        id: cache
         uses: actions/cache@v4
         with:
           path: |
@@ -76,27 +102,64 @@ jobs:
             build_dir
             staging_dir
             feeds
-          key: ${{ inputs.repo_short }}-${{ inputs.soc_name }}-${{ inputs.config_profile }}-${{ hashFiles('configs/**') }}
+            toolchain
+          key: ${{ steps.cache_key.outputs.key }}
           restore-keys: |
             ${{ inputs.repo_short }}-${{ inputs.soc_name }}-${{ inputs.config_profile }}-
             ${{ inputs.repo_short }}-${{ inputs.soc_name }}-
+            ${{ inputs.repo_short }}-
 
       - name: 📥 克隆源码
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
           git clone ${{ inputs.repo_url }} openwrt
           cd openwrt
           git checkout ${{ inputs.repo_branch }}
           git log -1 --pretty=format:"%h - %s (%cr)"
 
+      - name: 📦 更新Feeds
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+  # 第二阶段：配置合并和检查
+  config:
+    runs-on: ${{ inputs.ubuntu_version }}
+    needs: prepare
+    outputs:
+      config_valid: ${{ steps.config_check.outputs.valid }}
+      missing_packages: ${{ steps.config_check.outputs.missing }}
+      auto_fixed: ${{ steps.config_check.outputs.fixed }}
+      luci_packages: ${{ steps.package_info.outputs.packages }}
+      
+    steps:
+      - name: 🚀 初始化环境
+        uses: actions/checkout@v4
+
+      - name: 📦 恢复缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ccache
+            dl
+            build_dir
+            staging_dir
+            feeds
+            toolchain
+          key: ${{ needs.prepare.outputs.cache_key }}
+
       - name: 🔀 合并配置文件
         run: |
           chmod +x scripts/merge_config.sh
           ./scripts/merge_config.sh ${{ inputs.repo_short }} ${{ inputs.soc_name }} ${{ inputs.config_profile }}
 
-      - name: 🔍 检查包依赖
+      - name: 🔍 初始包检查
+        id: initial_check
         run: |
           chmod +x scripts/check_packages.sh
-          ./scripts/check_packages.sh
+          ./scripts/check_packages.sh initial
 
       - name: 🛠️ 执行DIY脚本
         run: |
@@ -114,16 +177,79 @@ jobs:
         run: |
           cd openwrt
           make defconfig
-          
-      - name: 🔍 二次包检查
+
+      - name: 🔍 最终包检查
+        id: final_check
         run: |
           chmod +x scripts/check_packages.sh
           ./scripts/check_packages.sh final
 
+      - name: 📦 获取包信息
+        id: package_info
+        run: |
+          LUCI_PACKAGES=$(grep "CONFIG_PACKAGE_luci-app-.*=y" openwrt/.config | sed 's/CONFIG_PACKAGE_\(.*\)=y/\1/' | tr '\n' ',')
+          echo "packages=$LUCI_PACKAGES" >> $GITHUB_OUTPUT
+          echo "📦 LUCI包数量: $(echo $LUCI_PACKAGES | tr ',' '\n' | wc -l)"
+
+      - name: 🔍 配置验证
+        id: config_check
+        run: |
+          # 检查配置是否有效
+          if [ -f "openwrt/.config" ]; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "missing=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🔧 尝试自动修复
+        if: steps.config_check.outputs.valid == 'false'
+        run: |
+          chmod +x scripts/auto_fix_packages.sh
+          ./scripts/auto_fix_packages.sh ${{ inputs.repo_short }} ${{ inputs.soc_name }} ${{ inputs.config_profile }}
+
+      - name: 🔍 修复后验证
+        if: steps.config_check.outputs.valid == 'false'
+        run: |
+          cd openwrt
+          make defconfig
+          chmod +x ../scripts/check_packages.sh
+          ../scripts/check_packages.sh final
+
+      - name: ❌ 配置验证失败
+        if: steps.config_check.outputs.valid == 'false'
+        run: |
+          echo -e "\033[31m🚨 配置验证失败，无法自动修复！\033[0m"
+          echo -e "\033[31m请检查配置文件和依赖关系！\033[0m"
+          exit 1
+
+  # 第三阶段：编译
+  build:
+    runs-on: ${{ inputs.ubuntu_version }}
+    needs: [prepare, config]
+    if: needs.config.outputs.config_valid == 'true'
+    
+    steps:
+      - name: 🚀 初始化环境
+        uses: actions/checkout@v4
+
+      - name: 📦 恢复缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ccache
+            dl
+            build_dir
+            staging_dir
+            feeds
+            toolchain
+          key: ${{ needs.prepare.outputs.cache_key }}
+
       - name: 🏗️ 编译固件
         run: |
           cd openwrt
-          echo -e "$(nproc) thread build"
+          echo -e "\033[36m🔨 开始编译固件...\033[0m"
+          echo -e "\033[36m🔨 使用 $(nproc) 个线程编译\033[0m"
           make -j$(nproc) || make -j1 || echo "⚠️ 编译失败"
           
       - name: 📊 显示最终磁盘空间
@@ -149,19 +275,21 @@ jobs:
         id: kernel_info
         run: |
           cd openwrt
-          KERNEL_VER=$(make kernelconfig | grep "Kernel version" | awk '{print $3}')
+          KERNEL_VER=$(make kernelconfig 2>/dev/null | grep "Kernel version" | awk '{print $3}' || echo "unknown")
           echo "version=$KERNEL_VER" >> $GITHUB_OUTPUT
+          echo "🔧 内核版本: $KERNEL_VER"
 
       - name: 🔍 获取设备信息
         id: device_info
         run: |
           DEVICES=$(ls artifacts/ | grep -E "factory|sysupgrade" | cut -d'-' -f2 | sort -u | tr '\n' ',')
           echo "devices=$DEVICES" >> $GITHUB_OUTPUT
+          echo "📱 设备列表: $DEVICES"
 
       - name: 🔍 生成哈希值
         id: hash_info
         run: |
-          HASH=$(sha256sum artifacts/*.bin | sha256sum | cut -d' ' -f1)
+          HASH=$(sha256sum artifacts/*.bin 2>/dev/null | sha256sum | cut -d' ' -f1 || echo "unknown")
           echo "hash=$HASH" >> $GITHUB_OUTPUT
 
       - name: ✅ 构建结果
@@ -169,7 +297,9 @@ jobs:
         run: |
           if [ -d "artifacts" ] && [ "$(ls -A artifacts)" ]; then
             echo "success=true" >> $GITHUB_OUTPUT
+            echo -e "\033[32m✅ 构建成功！\033[0m"
           else
             echo "success=false" >> $GITHUB_OUTPUT
+            echo -e "\033[31m❌ 构建失败！\033[0m"
             exit 1
           fi
