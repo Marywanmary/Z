@@ -1,0 +1,175 @@
+name: Core Build Workflow
+
+on:
+  workflow_call:
+    inputs:
+      repo_url:
+        required: true
+        type: string
+      repo_branch:
+        required: true
+        type: string
+      repo_short:
+        required: true
+        type: string
+      soc_name:
+        required: true
+        type: string
+      config_profile:
+        required: true
+        type: string
+      ubuntu_version:
+        required: false
+        type: string
+        default: 'ubuntu-22.04'
+      manual_trigger:
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ${{ inputs.ubuntu_version }}
+    outputs:
+      build_success: ${{ steps.build_outcome.outputs.success }}
+      kernel_version: ${{ steps.kernel_info.outputs.version }}
+      devices: ${{ steps.device_info.outputs.devices }}
+      artifacts_hash: ${{ steps.hash_info.outputs.hash }}
+
+    steps:
+      - name: 🚀 初始化环境
+        uses: actions/checkout@v4
+        
+      - name: 💾 设置磁盘空间
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
+      - name: 📊 显示初始磁盘空间
+        run: |
+          echo "🔍 初始磁盘空间:"
+          df -h
+
+      - name: 🔧 设置编译环境
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+          gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
+          python3-distutils python3-setuptools python3-pyelftools rsync \
+          unzip zlib1g-dev file wget curl ccache ecj fastjar java-propose-classpath \
+          libelf-dev intltool libncurses5-dev libncursesw5-dev libssl-dev \
+          python3-pyelftools subversion swig time xsltproc zlib1g-dev \
+          libxml-parser-perl libgtk2.0-dev libglib2.0-dev libglade2-0-dev \
+          libglade2-dev libqt5-dev python3-dev libusb-1.0-0-dev libudev-dev
+
+      - name: 🔄 设置缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ccache
+            dl
+            build_dir
+            staging_dir
+            feeds
+          key: ${{ inputs.repo_short }}-${{ inputs.soc_name }}-${{ inputs.config_profile }}-${{ hashFiles('configs/**') }}
+          restore-keys: |
+            ${{ inputs.repo_short }}-${{ inputs.soc_name }}-${{ inputs.config_profile }}-
+            ${{ inputs.repo_short }}-${{ inputs.soc_name }}-
+
+      - name: 📥 克隆源码
+        run: |
+          git clone ${{ inputs.repo_url }} openwrt
+          cd openwrt
+          git checkout ${{ inputs.repo_branch }}
+          git log -1 --pretty=format:"%h - %s (%cr)"
+
+      - name: 🔀 合并配置文件
+        run: |
+          chmod +x scripts/merge_config.sh
+          ./scripts/merge_config.sh ${{ inputs.repo_short }} ${{ inputs.soc_name }} ${{ inputs.config_profile }}
+
+      - name: 🔍 检查包依赖
+        run: |
+          chmod +x scripts/check_packages.sh
+          ./scripts/check_packages.sh
+
+      - name: 🛠️ 执行DIY脚本
+        run: |
+          cd openwrt
+          chmod +x ../scripts/diy.sh
+          ../scripts/diy.sh ${{ inputs.repo_short }} ${{ inputs.soc_name }}
+
+      - name: 📦 更新Feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: 🎯 生成最终配置
+        run: |
+          cd openwrt
+          make defconfig
+          
+      - name: 🔍 二次包检查
+        run: |
+          chmod +x scripts/check_packages.sh
+          ./scripts/check_packages.sh final
+
+      - name: 🏗️ 编译固件
+        run: |
+          cd openwrt
+          echo -e "$(nproc) thread build"
+          make -j$(nproc) || make -j1 || echo "⚠️ 编译失败"
+          
+      - name: 📊 显示最终磁盘空间
+        run: |
+          echo "🔍 最终磁盘空间:"
+          df -h
+
+      - name: 📦 收集编译产物
+        run: |
+          chmod +x scripts/collect_artifacts.sh
+          ./scripts/collect_artifacts.sh ${{ inputs.repo_short }} ${{ inputs.soc_name }} ${{ inputs.config_profile }}
+
+      - name: 📤 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-${{ inputs.repo_short }}-${{ inputs.soc_name }}-${{ inputs.config_profile }}
+          path: |
+            artifacts/
+            logs/
+          retention-days: 7
+
+      - name: 🔍 获取内核版本
+        id: kernel_info
+        run: |
+          cd openwrt
+          KERNEL_VER=$(make kernelconfig | grep "Kernel version" | awk '{print $3}')
+          echo "version=$KERNEL_VER" >> $GITHUB_OUTPUT
+
+      - name: 🔍 获取设备信息
+        id: device_info
+        run: |
+          DEVICES=$(ls artifacts/ | grep -E "factory|sysupgrade" | cut -d'-' -f2 | sort -u | tr '\n' ',')
+          echo "devices=$DEVICES" >> $GITHUB_OUTPUT
+
+      - name: 🔍 生成哈希值
+        id: hash_info
+        run: |
+          HASH=$(sha256sum artifacts/*.bin | sha256sum | cut -d' ' -f1)
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+      - name: ✅ 构建结果
+        id: build_outcome
+        run: |
+          if [ -d "artifacts" ] && [ "$(ls -A artifacts)" ]; then
+            echo "success=true" >> $GITHUB_OUTPUT
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
