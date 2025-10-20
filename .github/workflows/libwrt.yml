@@ -1,19 +1,10 @@
-name: LibWrt Build
+name: LibWrt Build All
 
 on:
   schedule:
     - cron: '0 16 * * 4' # 北京时间周五0点 (UTC+8 = UTC-8)
   workflow_dispatch:
     inputs:
-      config_profile:
-        description: '配置选择'
-        required: true
-        default: 'Ultra'
-        type: choice
-        options:
-        - Pro
-        - Max
-        - Ultra
       ubuntu_version:
         description: 'Ubuntu版本'
         required: true
@@ -23,26 +14,125 @@ on:
         - ubuntu-22.04
         - ubuntu-24.04
 
+env:
+  REPO_URL: https://github.com/laipeng668/openwrt-6.x.git
+  REPO_BRANCH: k6.12-nss
+  REPO_SHORT: libwrt
+  SOC_NAME: ipq60xx
+  CONFIGS: '["Pro", "Max", "Ultra"]'
+
 jobs:
-  build:
+  # 构建矩阵策略
+  build-matrix:
+    runs-on: ${{ github.event.inputs.ubuntu_version || 'ubuntu-22.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [Pro, Max, Ultra]
+    
+    steps:
+      - name: 🚀 开始构建
+        run: |
+          echo -e "\033[36m🚀 开始构建 LibWrt - ${{ matrix.config }}\033[0m"
+          echo -e "\033[36m📅 构建时间: $(date '+%Y-%m-%d %H:%M:%S')\033[0m"
+          echo -e "\033[36m🔧 Ubuntu版本: ${{ github.event.inputs.ubuntu_version || 'ubuntu-22.04' }}\033[0m"
+
+  # 调用核心构建工作流
+  build-pro:
     uses: ./.github/workflows/core-build.yml
     with:
-      repo_url: https://github.com/laipeng668/openwrt-6.x.git
-      repo_branch: k6.12-nss
-      repo_short: libwrt
-      soc_name: ipq60xx
-      config_profile: ${{ github.event.inputs.config_profile || 'Ultra' }}
+      repo_url: ${{ env.REPO_URL }}
+      repo_branch: ${{ env.REPO_BRANCH }}
+      repo_short: ${{ env.REPO_SHORT }}
+      soc_name: ${{ env.SOC_NAME }}
+      config_profile: Pro
       ubuntu_version: ${{ github.event.inputs.ubuntu_version || 'ubuntu-22.04' }}
       manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
 
-  release:
-    needs: build
+  build-max:
+    uses: ./.github/workflows/core-build.yml
+    with:
+      repo_url: ${{ env.REPO_URL }}
+      repo_branch: ${{ env.REPO_BRANCH }}
+      repo_short: ${{ env.REPO_SHORT }}
+      soc_name: ${{ env.SOC_NAME }}
+      config_profile: Max
+      ubuntu_version: ${{ github.event.inputs.ubuntu_version || 'ubuntu-22.04' }}
+      manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
+
+  build-ultra:
+    uses: ./.github/workflows/core-build.yml
+    with:
+      repo_url: ${{ env.REPO_URL }}
+      repo_branch: ${{ env.REPO_BRANCH }}
+      repo_short: ${{ env.REPO_SHORT }}
+      soc_name: ${{ env.SOC_NAME }}
+      config_profile: Ultra
+      ubuntu_version: ${{ github.event.inputs.ubuntu_version || 'ubuntu-22.04' }}
+      manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
+
+  # 发布阶段
+  release-pro:
+    needs: build-pro
     uses: ./.github/workflows/core-release.yml
     with:
-      repo_short: libwrt
-      soc_name: ipq60xx
-      build_success: ${{ needs.build.outputs.build_success }}
-      kernel_version: ${{ needs.build.outputs.kernel_version }}
-      devices: ${{ needs.build.outputs.devices }}
-      artifacts_hash: ${{ needs.build.outputs.artifacts_hash }}
+      repo_short: ${{ env.REPO_SHORT }}
+      soc_name: ${{ env.SOC_NAME }}
+      config_profile: Pro
+      build_success: ${{ needs.build-pro.outputs.build_success }}
+      kernel_version: ${{ needs.build-pro.outputs.kernel_version }}
+      devices: ${{ needs.build-pro.outputs.devices }}
+      luci_packages: ${{ needs.build-pro.outputs.luci_packages }}
+      artifacts_hash: ${{ needs.build-pro.outputs.artifacts_hash }}
       manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
+
+  release-max:
+    needs: build-max
+    uses: ./.github/workflows/core-release.yml
+    with:
+      repo_short: ${{ env.REPO_SHORT }}
+      soc_name: ${{ env.SOC_NAME }}
+      config_profile: Max
+      build_success: ${{ needs.build-max.outputs.build_success }}
+      kernel_version: ${{ needs.build-max.outputs.kernel_version }}
+      devices: ${{ needs.build-max.outputs.devices }}
+      luci_packages: ${{ needs.build-max.outputs.luci_packages }}
+      artifacts_hash: ${{ needs.build-max.outputs.artifacts_hash }}
+      manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
+
+  release-ultra:
+    needs: build-ultra
+    uses: ./.github/workflows/core-release.yml
+    with:
+      repo_short: ${{ env.REPO_SHORT }}
+      soc_name: ${{ env.SOC_NAME }}
+      config_profile: Ultra
+      build_success: ${{ needs.build-ultra.outputs.build_success }}
+      kernel_version: ${{ needs.build-ultra.outputs.kernel_version }}
+      devices: ${{ needs.build-ultra.outputs.devices }}
+      luci_packages: ${{ needs.build-ultra.outputs.luci_packages }}
+      artifacts_hash: ${{ needs.build-ultra.outputs.artifacts_hash }}
+      manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
+
+  # 汇总结果
+  summary:
+    needs: [build-pro, build-max, build-ultra]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: 📊 构建汇总
+        run: |
+          echo -e "\033[36m📊 LibWrt 构建汇总\033[0m"
+          echo -e "\033[36m===================\033[0m"
+          echo -e "Pro配置构建状态: ${{ needs.build-pro.result }}"
+          echo -e "Max配置构建状态: ${{ needs.build-max.result }}"
+          echo -e "Ultra配置构建状态: ${{ needs.build-ultra.result }}"
+          echo -e "\033[36m===================\033[0m"
+          
+          if [[ "${{ needs.build-pro.result }}" == "success" && "${{ needs.build-max.result }}" == "success" && "${{ needs.build-ultra.result }}" == "success" ]]; then
+            echo -e "\033[32m✅ 所有配置构建成功！\033[0m"
+          else
+            echo -e "\033[31m❌ 部分配置构建失败！\033[0m"
+            exit 1
+          fi
