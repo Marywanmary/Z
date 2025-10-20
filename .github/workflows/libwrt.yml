@@ -14,70 +14,50 @@ on:
         - ubuntu-22.04
         - ubuntu-24.04
 
-env:
-  REPO_URL: https://github.com/laipeng668/openwrt-6.x.git
-  REPO_BRANCH: k6.12-nss
-  REPO_SHORT: libwrt
-  SOC_NAME: ipq60xx
-  CONFIGS: '["Pro", "Max", "Ultra"]'
-
 jobs:
-  # 构建矩阵策略
-  build-matrix:
-    runs-on: ${{ github.event.inputs.ubuntu_version || 'ubuntu-22.04' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        config: [Pro, Max, Ultra]
-    
-    steps:
-      - name: 🚀 开始构建
-        run: |
-          echo -e "\033[36m🚀 开始构建 LibWrt - ${{ matrix.config }}\033[0m"
-          echo -e "\033[36m📅 构建时间: $(date '+%Y-%m-%d %H:%M:%S')\033[0m"
-          echo -e "\033[36m🔧 Ubuntu版本: ${{ github.event.inputs.ubuntu_version || 'ubuntu-22.04' }}\033[0m"
-
-  # 调用核心构建工作流
+  # 调用核心构建工作流 - Pro配置
   build-pro:
     uses: ./.github/workflows/core-build.yml
     with:
-      repo_url: ${{ env.REPO_URL }}
-      repo_branch: ${{ env.REPO_BRANCH }}
-      repo_short: ${{ env.REPO_SHORT }}
-      soc_name: ${{ env.SOC_NAME }}
+      repo_url: https://github.com/laipeng668/openwrt-6.x.git
+      repo_branch: k6.12-nss
+      repo_short: libwrt
+      soc_name: ipq60xx
       config_profile: Pro
       ubuntu_version: ${{ github.event.inputs.ubuntu_version || 'ubuntu-22.04' }}
       manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
 
+  # 调用核心构建工作流 - Max配置
   build-max:
     uses: ./.github/workflows/core-build.yml
     with:
-      repo_url: ${{ env.REPO_URL }}
-      repo_branch: ${{ env.REPO_BRANCH }}
-      repo_short: ${{ env.REPO_SHORT }}
-      soc_name: ${{ env.SOC_NAME }}
+      repo_url: https://github.com/laipeng668/openwrt-6.x.git
+      repo_branch: k6.12-nss
+      repo_short: libwrt
+      soc_name: ipq60xx
       config_profile: Max
       ubuntu_version: ${{ github.event.inputs.ubuntu_version || 'ubuntu-22.04' }}
       manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
 
+  # 调用核心构建工作流 - Ultra配置
   build-ultra:
     uses: ./.github/workflows/core-build.yml
     with:
-      repo_url: ${{ env.REPO_URL }}
-      repo_branch: ${{ env.REPO_BRANCH }}
-      repo_short: ${{ env.REPO_SHORT }}
-      soc_name: ${{ env.SOC_NAME }}
+      repo_url: https://github.com/laipeng668/openwrt-6.x.git
+      repo_branch: k6.12-nss
+      repo_short: libwrt
+      soc_name: ipq60xx
       config_profile: Ultra
       ubuntu_version: ${{ github.event.inputs.ubuntu_version || 'ubuntu-22.04' }}
       manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
 
-  # 发布阶段
+  # 发布阶段 - Pro配置
   release-pro:
     needs: build-pro
     uses: ./.github/workflows/core-release.yml
     with:
-      repo_short: ${{ env.REPO_SHORT }}
-      soc_name: ${{ env.SOC_NAME }}
+      repo_short: libwrt
+      soc_name: ipq60xx
       config_profile: Pro
       build_success: ${{ needs.build-pro.outputs.build_success }}
       kernel_version: ${{ needs.build-pro.outputs.kernel_version }}
@@ -86,12 +66,13 @@ jobs:
       artifacts_hash: ${{ needs.build-pro.outputs.artifacts_hash }}
       manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
 
+  # 发布阶段 - Max配置
   release-max:
     needs: build-max
     uses: ./.github/workflows/core-release.yml
     with:
-      repo_short: ${{ env.REPO_SHORT }}
-      soc_name: ${{ env.SOC_NAME }}
+      repo_short: libwrt
+      soc_name: ipq60xx
       config_profile: Max
       build_success: ${{ needs.build-max.outputs.build_success }}
       kernel_version: ${{ needs.build-max.outputs.kernel_version }}
@@ -100,12 +81,13 @@ jobs:
       artifacts_hash: ${{ needs.build-max.outputs.artifacts_hash }}
       manual_trigger: ${{ github.event_name == 'workflow_dispatch' }}
 
+  # 发布阶段 - Ultra配置
   release-ultra:
     needs: build-ultra
     uses: ./.github/workflows/core-release.yml
     with:
-      repo_short: ${{ env.REPO_SHORT }}
-      soc_name: ${{ env.SOC_NAME }}
+      repo_short: libwrt
+      soc_name: ipq60xx
       config_profile: Ultra
       build_success: ${{ needs.build-ultra.outputs.build_success }}
       kernel_version: ${{ needs.build-ultra.outputs.kernel_version }}
